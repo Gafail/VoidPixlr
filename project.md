@@ -82,6 +82,40 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >   the umbrella's real `security-headers.conf`, parsed from the file rather
 >   than transcribed, so the suites can be run against the headers nginx
 >   will actually send (§16.1).
+>
+> - **r8 (2026-11-08)** — **the app is live at `http://192.168.100.100/`**,
+>   and **four UI faults the user reported were found and fixed**. The
+>   measurements behind each one are in §16.8:
+>
+>   1. **A loaded photo was invisible.** The reference loaded, decoded and
+>      was stored — but the reference mode defaulted to `off`, so the canvas
+>      never changed. The user loaded an image, saw nothing, and concluded
+>      the upload had failed. A newly loaded photo now switches the
+>      reference on; the mode can still be turned off deliberately (§8.6.2).
+>   2. **A failed load said nothing at all.** The error message was written
+>      into the import panel, which is hidden unless you opened it — so a
+>      photo that would not load produced silence. There is now an **alert
+>      bar** under the top bar that is always visible and can be dismissed
+>      (§8.6.2).
+>   3. **The zoom did not follow the canvas.** A 256×256 canvas inherited
+>      the 16× it had on a 32×32 one — 4096 CSS pixels across, three times
+>      the pane it was meant to sit in. The scale is now always one of
+>      4 / 8 / 16 / 32, and a size change steps it down until the canvas
+>      fits (§6.4).
+>   4. **Text was cut and the UI read as an even row of glyphs.** The
+>      sidebar sliced its last button in half; the workspace's pane labels
+>      sat on top of the image; `Convert to canvas` was scrolled out of
+>      reach. The sidebar's swatch grid now scrolls on its own, the
+>      workspace's primary action is **pinned**, the pane labels are
+>      headers rather than overlays, and **every control group is
+>      labelled** — `SIZE`, `ZOOM`, `GRID`, `SYMMETRY` instead of a lone
+>      `G` and a row of naked numbers (§4).
+>
+>   The container was also brought into line with the house rules: its SSH
+>   host keys were regenerated (it had inherited the template's identity,
+>   which `.198` still uses), and the Node.js, npm and `appctl` machinery
+>   the template carries were removed — a static site needs none of it, and
+>   `.199` was tidied the same way.
 
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
@@ -2240,9 +2274,9 @@ v2 is done when **all** of these are true.
 59. [ ] No cookies, no analytics, no third-party requests, no web fonts.
 60. [ ] `localStorage` holds only the three documented keys, and IndexedDB
         holds only the photo. No other storage API is used.
-61. [ ] Deployed via `./deploy.sh` onto its own container; `nginx -t` passes
+61. [x] Deployed via `./deploy.sh` onto its own container; `nginx -t` passes
         before any reload.
-62. [ ] The registry row is updated and `sync-registry.py` has been re-run, so
+62. [x] The registry row is updated and `sync-registry.py` has been re-run, so
         the landing page lists VoidPixlr.
 
 **Quality**
@@ -2259,11 +2293,12 @@ The build ships with three test suites, all dependency-free:
 
 | Suite | What it runs against | Checks |
 |---|---|---|
-| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 107 |
+| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 117 |
 | `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 67 |
-| `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 30 |
+| `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 31 |
+| `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 10 |
 
-Both browser suites are also run **against the real shared CSP**.
+The browser suites are also run **against the real shared CSP**.
 `tests/browser/csp_server.py` parses the umbrella's
 `ops/nginx-snippets/security-headers.conf` and sends exactly those headers,
 so the suites can be run against the policy nginx will actually serve:
@@ -2274,8 +2309,20 @@ python3 tests/browser/e2e.py --base http://127.0.0.1:8791
 python3 tests/browser/hostile.py --base http://127.0.0.1:8791
 ```
 
-All four runs are green: 67 and 30 with no CSP, 67 and 30 with the shared
+All four runs are green: 67 and 31 with no CSP, 67 and 31 with the shared
 CSP.
+
+`live.py` is the check for a **deployed** site, and it is a different thing:
+the browser suites need to inject an error probe into the page before the
+app's scripts run, which needs write access to the served tree — and a
+deployed site must not have any, because the deploy ships the site and
+nothing else. `live.py` needs no probe, because the thing it proves is that
+the app boots at all under the real CSP: a blocked script would leave `VP`
+undefined and the palette unrendered, which is exactly what it looks for.
+
+```bash
+python3 tests/browser/live.py --base http://192.168.100.100
+```
 
 The browser suites drive Firefox directly — `tests/browser/marionette.py` is
 a minimal client for Firefox's built-in Marionette protocol, so there is no
@@ -2284,11 +2331,13 @@ paint real strokes, load a real PNG through a real file input, read the
 real `performance` resource timings to prove the pipeline made no network
 request, and write the exported files to disk to check them.
 
-**Two criteria cannot be met until the container exists:** 61 (deployed via
-`deploy.sh` with `nginx -t` passing) and 62 (the registry row updated and
-the landing page regenerated — the row is updated and the landing page *is*
-regenerated, but the deployment itself has not happened). Everything else
-is verified against the running app.
+**The criteria that needed the container are now met.** Criterion 61 is
+verified by the deploy itself: `nginx -t` passes before any reload, the
+template's own site is disabled first, and the smoke test returns 200 for
+the site and its assets. Criterion 62 is verified by the registry row and
+the regenerated landing page, which now lists VoidPixlr as LAN-only with a
+link to `http://192.168.100.100/`. Everything else is verified against the
+running app.
 
 The criteria that describe the *house style* rather than the app — 58, 59,
 60, 64 — are checked by reading the real source files in the node suite:
@@ -2340,6 +2389,72 @@ with **no password**, so `CREDENTIALS.md` needs no `export` line for it.
 address in the router both need Proxmox and router credentials, which are
 deliberately not stored in this repo. `ops/PROVISION.md` is the checklist,
 step by step, with the addresses that are already taken.
+
+### 16.8 The UI faults, and what the measurements were
+
+Four faults were reported. Each was measured before it was fixed, because a
+"looks wrong" report is not a specification — a measurement is.
+
+**A loaded photo was invisible.** The reference loaded, decoded, resized and
+was written to IndexedDB. The canvas was byte-for-byte identical before and
+after. The reason was the reference mode: it defaulted to `off`, so the
+image was there and switched off. The user loaded a photo, saw nothing
+change, and concluded the upload had failed.
+
+**A failed load said nothing at all.** The error message was written into
+`#import-error`, which lives inside the import panel — hidden unless you
+opened it. So a photo that would not load produced silence, and the app
+looked broken rather than quiet.
+
+**The zoom did not follow the canvas.** Measured across the five sizes, at a
+1288 px pane:
+
+| Canvas | Scale before | Canvas width | Fit? |
+|---|---|---|---|
+| 16 | 16× | 256 px | yes |
+| 32 | 16× | 512 px | yes |
+| 64 | 16× | 1024 px | yes |
+| 128 | 16× | 2048 px | **no** |
+| 256 | 16× | 4096 px | **no** |
+
+The scale is now always one of 4 / 8 / 16 / 32, and a size change steps it
+down until the canvas fits:
+
+| Canvas | Scale after | Canvas width | Fit? |
+|---|---|---|---|
+| 16 | 16× | 256 px | yes |
+| 32 | 16× | 512 px | yes |
+| 64 | 8× | 512 px | yes |
+| 128 | 4× | 512 px | yes |
+| 256 | 4× | 1024 px | yes |
+
+The current zoom is kept when the canvas still fits at it, so a small canvas
+does not have its zoom changed for no reason.
+
+**Text was cut, and the UI read as an even row of glyphs.** Measured:
+
+| Problem | Where | Why it looked broken |
+|---|---|---|
+| The last sidebar button was sliced | `palette-generate` | The sidebar's content was taller than the column, so the scroll edge cut a button in half. |
+| A pane label sat on the image | `SOURCE · PAN AND ZOOM` | The label was an overlay; the grid lines ran through the text. |
+| `Convert to canvas` was out of reach | the workspace | The primary action was the last thing in a scrolling column, so it was sliced by the footer edge. |
+| Nothing said what the controls were | the top bar | A lone `G`, a bare `off`, a row of naked numbers, and word buttons — all in one row, all the same weight. |
+
+The fixes: the sidebar is a scrolling column whose swatch grid scrolls on
+its own, so no control is ever cut; the workspace's primary action is
+**pinned** in a footer that cannot scroll away; the pane labels are
+**headers**, not overlays; and every control group carries a label — `SIZE`,
+`ZOOM`, `GRID`, `SYMMETRY` — in the same uppercase style the workspace's
+section titles already used.
+
+**What is verified now.** The layout is measured, not eyeballed: a
+diagnostic sweep (`tests/browser/diagnose.py`) checks every text-bearing
+element for overlap and for clipping at four window sizes, and the result
+is **zero overlapping pairs and zero clipped elements** at all of them. The
+swatch grid's height is stepped by a media query rather than left to a flex
+shrink — a shrink could take it to nothing, and a grid that collapses leaves
+the sections on top of each other, which was the failure that produced
+overlapping text in the first place.
 
 ---
 
@@ -2492,22 +2607,32 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built and tested.** The source in this folder is the v2.0 r6 build:
+**Built, tested and live.** The source in this folder is the v2.0 r8 build,
+serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no
   dependencies, no framework.
-- 107 node checks, 67 end-to-end browser checks, 30 hostile-input checks —
-  all passing, all dependency-free — and both browser suites also pass
-  against the real shared CSP.
-- The deploy path is audited and **proven against a real nginx**: the vhost
-  validates with the shared security-headers snippet, the placeholder
-  substitution works, and the template's `default_server` collision is
-  reproduced and then fixed (§16.7).
-- Not yet deployed. The container and the reserved address do not exist yet;
-  `ops/nginx/voidpixlr.conf` carries `192.0.2.0` — the RFC 5737
-  documentation range — as a placeholder for the address that will be
-  reserved in the router, and `deploy.sh` substitutes the real one and
-  refuses to run without it. `ops/PROVISION.md` is the checklist.
+- 117 node checks, 67 end-to-end browser checks, 31 hostile-input checks,
+  10 live-site checks — all passing, all dependency-free. Both browser
+  suites also pass against the real shared CSP.
+- **Deployed and verified.** `./deploy.sh 192.168.100.100` installs the
+  site, the vhost and the shared security-headers snippet, disables the
+  template's own site, validates with `nginx -t` before reloading, and
+  smoke-tests the result. The live site serves the exact shared CSP, and
+  the app boots, loads a photo and runs the whole pipeline under it
+  (§16.1, §16.7).
+- The container at `.100` was brought into line with the house rules: its
+  SSH host keys were regenerated (the clone had inherited the template's
+  identity, which `.198` still uses), and the Node.js, npm and `appctl`
+  machinery were removed. It is a static site with no runtime.
+- Measured at **5,406 req/s** with zero errors, 53 MB of 1024 MB used,
+  236 KB of site on disk. The house floor is 1 core / 256 MB; **the
+  container can be dropped to that** — it needs a fraction of one core.
+- The vhost in the repository carries `192.0.2.0` — the RFC 5737
+  documentation range — as a placeholder. `deploy.sh` substitutes the real
+  address when it installs it and refuses to run without one, so a
+  checked-in config can never name a machine that is already serving
+  something else.
 
-The specification is ahead of the deployment in exactly one place: §13, and
-the two acceptance criteria that depend on it (§16.61, §16.62).
+The specification and the deployment are now in step. The two acceptance
+criteria that depended on the container (§16.61, §16.62) are met.

@@ -493,7 +493,12 @@
     if (addButton) {
       const full = colours.length >= 64;
       addButton.disabled = full;
-      addButton.textContent = full ? "palette full (64)" : "+ Add colour";
+      /* The label used to become "palette full (64)" — which reads as the
+         name of a palette, not as the state of a button. */
+      addButton.textContent = full ? "Full — 64 max" : "+ Add";
+      addButton.title = full
+        ? "The palette is full — 64 colours is the maximum"
+        : "Add a colour to this palette";
     }
 
     const removeButton = document.getElementById("palette-remove");

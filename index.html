@@ -135,8 +135,8 @@
 
         <div class="side-row wrap">
           <button type="button" class="btn" id="palette-add">+ Add</button>
-          <button type="button" class="btn" id="palette-reorder">&#8645; Reorder</button>
-          <button type="button" class="btn" id="palette-remove">&#128465; Remove</button>
+          <button type="button" class="btn" id="palette-reorder">Reorder</button>
+          <button type="button" class="btn" id="palette-remove">Remove</button>
         </div>
 
         <label class="side-label" for="colour-input">Active colour</label>
@@ -150,7 +150,7 @@
         <h2 class="side-title">Palette actions</h2>
         <div class="side-row wrap">
           <button type="button" class="btn" id="palette-save">Save</button>
-          <button type="button" class="btn" id="palette-duplicate">Duplicate</button>
+          <button type="button" class="btn" id="palette-duplicate">Copy</button>
           <button type="button" class="btn" id="palette-delete">Delete</button>
         </div>
 
@@ -180,13 +180,15 @@
         <section class="ws-block">
           <h2 class="ws-title">Source</h2>
           <p class="ws-note" id="ws-load-note"></p>
-          <div class="ws-row">
+          <div class="ws-labelled">
             <span class="panel-label">Framing</span>
-            <button type="button" class="btn" id="ws-fit">Fit</button>
-            <button type="button" class="btn" id="ws-pixel">Pixel</button>
-            <button type="button" class="btn" id="ws-zoom-out">&minus;</button>
-            <span class="readout" id="ws-zoom-readout">1&times;</span>
-            <button type="button" class="btn" id="ws-zoom-in">+</button>
+            <div class="ws-row">
+              <button type="button" class="btn" id="ws-fit">Fit</button>
+              <button type="button" class="btn" id="ws-pixel">Pixel</button>
+              <button type="button" class="btn" id="ws-zoom-out">&minus;</button>
+              <span class="readout" id="ws-zoom-readout">1&times;</span>
+              <button type="button" class="btn" id="ws-zoom-in">+</button>
+            </div>
           </div>
 
           <div class="ws-slider">
@@ -214,19 +216,21 @@
             <input type="range" id="ws-hue" min="-180" max="180" value="0">
           </div>
           <div class="ws-row">
-            <label class="check"><input type="checkbox" id="ws-grey"> Greyscale</label>
-            <button type="button" class="btn" id="ws-auto-levels" title="Auto levels (L)">Auto levels</button>
+              <label class="check"><input type="checkbox" id="ws-grey"> Greyscale</label>
+              <button type="button" class="btn" id="ws-auto-levels" title="Auto levels (L)">Auto levels</button>
           </div>
         </section>
 
         <section class="ws-block">
           <h2 class="ws-title">Palette</h2>
-          <div class="ws-row">
+          <div class="ws-labelled">
             <span class="panel-label">Colours</span>
-            <button type="button" class="btn" id="ws-count-16">16</button>
-            <button type="button" class="btn is-active" id="ws-count-32">32</button>
-            <button type="button" class="btn" id="ws-count-64">64</button>
-            <button type="button" class="btn" id="ws-extract">Extract</button>
+            <div class="ws-row">
+              <button type="button" class="btn" id="ws-count-16">16</button>
+              <button type="button" class="btn is-active" id="ws-count-32">32</button>
+              <button type="button" class="btn" id="ws-count-64">64</button>
+              <button type="button" class="btn" id="ws-extract">Extract</button>
+            </div>
           </div>
           <p class="ws-note" id="ws-palette-status"></p>
 
@@ -252,49 +256,55 @@
               <input type="range" id="ws-tune-posterise" min="0" max="8" value="0">
             </div>
             <div class="ws-row wrap">
-              <button type="button" class="btn" id="ws-preset-pop">Sprite pop</button>
-              <button type="button" class="btn" id="ws-preset-muted">Muted</button>
-              <button type="button" class="btn" id="ws-preset-deep">Deep</button>
-              <button type="button" class="btn" id="ws-preset-pastel">Pastel</button>
-              <button type="button" class="btn" id="ws-preset-normalise">Normalise</button>
+                <button type="button" class="btn" id="ws-preset-pop">Sprite pop</button>
+                <button type="button" class="btn" id="ws-preset-muted">Muted</button>
+                <button type="button" class="btn" id="ws-preset-deep">Deep</button>
+                <button type="button" class="btn" id="ws-preset-pastel">Pastel</button>
+                <button type="button" class="btn" id="ws-preset-normalise">Normalise</button>
             </div>
             <p class="ws-note" id="ws-tune-status"></p>
           </div>
 
           <div class="ws-targets" id="ws-targets" hidden>
             <div class="ws-row wrap">
-              <button type="button" class="btn" id="ws-target-replace">Replace active</button>
-              <button type="button" class="btn" id="ws-target-append">Append</button>
-              <button type="button" class="btn" id="ws-target-new">Save as new&hellip;</button>
-              <button type="button" class="btn" id="ws-stage-cancel">Cancel</button>
+                <button type="button" class="btn" id="ws-target-replace">Replace active</button>
+                <button type="button" class="btn" id="ws-target-append">Append</button>
+                <button type="button" class="btn" id="ws-target-new">Save as new&hellip;</button>
+                <button type="button" class="btn" id="ws-stage-cancel">Cancel</button>
             </div>
             <div class="ws-row">
-              <input type="text" id="ws-target-name" class="text-input" placeholder="new palette name" aria-label="New palette name">
+                <input type="text" id="ws-target-name" class="text-input" placeholder="new palette name" aria-label="New palette name">
             </div>
           </div>
         </section>
 
         <section class="ws-block">
           <h2 class="ws-title">Convert</h2>
-          <div class="ws-row">
+          <div class="ws-labelled">
             <span class="panel-label">Size</span>
-            <button type="button" class="btn" id="ws-size-16">16</button>
-            <button type="button" class="btn is-active" id="ws-size-32">32</button>
-            <button type="button" class="btn" id="ws-size-64">64</button>
-            <button type="button" class="btn" id="ws-size-128">128</button>
-            <button type="button" class="btn" id="ws-size-256">256</button>
+            <div class="ws-row">
+              <button type="button" class="btn" id="ws-size-16">16</button>
+              <button type="button" class="btn is-active" id="ws-size-32">32</button>
+              <button type="button" class="btn" id="ws-size-64">64</button>
+              <button type="button" class="btn" id="ws-size-128">128</button>
+              <button type="button" class="btn" id="ws-size-256">256</button>
+            </div>
           </div>
-          <div class="ws-row">
+          <div class="ws-labelled">
             <span class="panel-label">Sample</span>
-            <button type="button" class="btn import-mode is-active" data-group="ws-sample" data-value="average" id="ws-sample-average">Average</button>
-            <button type="button" class="btn import-mode" data-group="ws-sample" data-value="nearest" id="ws-sample-nearest">Nearest</button>
+            <div class="ws-row">
+              <button type="button" class="btn import-mode is-active" data-group="ws-sample" data-value="average" id="ws-sample-average">Average</button>
+              <button type="button" class="btn import-mode" data-group="ws-sample" data-value="nearest" id="ws-sample-nearest">Nearest</button>
+            </div>
           </div>
-          <div class="ws-row wrap">
+          <div class="ws-labelled">
             <span class="panel-label">Match</span>
-            <button type="button" class="btn import-mode is-active" data-group="ws-match" data-value="flat" id="ws-match-flat">Flat</button>
-            <button type="button" class="btn import-mode" data-group="ws-match" data-value="bayer" id="ws-match-bayer">Bayer</button>
-            <button type="button" class="btn import-mode" data-group="ws-match" data-value="floyd" id="ws-match-floyd">Floyd</button>
-            <button type="button" class="btn import-mode" data-group="ws-match" data-value="clustered" id="ws-match-clustered">Clustered</button>
+            <div class="ws-row wrap">
+              <button type="button" class="btn import-mode is-active" data-group="ws-match" data-value="flat" id="ws-match-flat">Flat</button>
+              <button type="button" class="btn import-mode" data-group="ws-match" data-value="bayer" id="ws-match-bayer">Bayer</button>
+              <button type="button" class="btn import-mode" data-group="ws-match" data-value="floyd" id="ws-match-floyd">Floyd</button>
+              <button type="button" class="btn import-mode" data-group="ws-match" data-value="clustered" id="ws-match-clustered">Clustered</button>
+            </div>
           </div>
         </section>
 

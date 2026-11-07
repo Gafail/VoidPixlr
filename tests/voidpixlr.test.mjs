@@ -1457,15 +1457,26 @@ check("the zoom always lands on a step", () => {
 
 check("the sidebar never cuts a control", () => {
   const css = read("css/style.css");
-  /* The swatch grid absorbs the slack and scrolls; nothing else does, so
-     no button can be sliced by the edge of the column. */
+  /* The swatch grid's height is set by a media query, never by a flex
+     shrink: a shrink could take it to nothing, and a grid that collapses
+     leaves the sections on top of each other. */
   assert(
-    /\.swatch-grid[\s\S]{0,400}flex: 1 1 auto/.test(css),
-    "the swatch grid does not take the slack",
+    /\.swatch-grid[\s\S]{0,400}flex: 0 0 auto/.test(css),
+    "the swatch grid can shrink to nothing",
   );
   assert(
-    /\.sidebar[\s\S]{0,400}grid-template-rows: auto minmax\(0, 1fr\) auto/.test(css),
-    "the sidebar is not a grid that can absorb the slack",
+    /\.swatch-grid[\s\S]{0,400}overflow-y: auto/.test(css),
+    "the swatch grid does not scroll",
+  );
+  /* The sidebar is a scrolling column, so its content is clipped rather
+     than allowed to overlap the bar below it. */
+  assert(
+    /\.sidebar[\s\S]{0,400}overflow-y: auto/.test(css),
+    "the sidebar is not a scrolling column",
+  );
+  assert(
+    !/\.sidebar[\s\S]{0,300}display: grid/.test(css),
+    "the sidebar is a grid — a grid row can overflow and overlap the next one",
   );
 });
 
