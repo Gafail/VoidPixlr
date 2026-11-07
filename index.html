@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoidPixlr — pixel art, and photos into pixels</title>
+<meta name="description" content="A pixel-art canvas for 16 to 256px art. Load a photo, frame it under a grid, pull a palette out of it and convert it to pixel art — entirely in your browser, with nothing ever uploaded.">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d0d0f'/%3E%3Crect x='2' y='2' width='5' height='5' fill='%234f4fff'/%3E%3Crect x='9' y='9' width='5' height='5' fill='%23e8e8ea'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Top bar ──────────────────────────────────────────────────────────── -->
+  <!-- Every group is labelled. A bare "G" or a naked row of numbers gave no
+       clue what it was; the label says what the group is, and the button
+       says what the group is doing. -->
+  <header class="top-bar" id="top">
+    <span class="wordmark">VoidPixlr</span>
+
+    <div class="group" role="group" aria-label="Canvas size">
+      <span class="group-label">Size</span>
+      <button type="button" class="btn size-btn" id="size-16">16</button>
+      <button type="button" class="btn size-btn" id="size-32">32</button>
+      <button type="button" class="btn size-btn" id="size-64">64</button>
+      <button type="button" class="btn size-btn" id="size-128">128</button>
+      <button type="button" class="btn size-btn" id="size-256">256</button>
+    </div>
+
+    <div class="group" role="group" aria-label="Zoom">
+      <span class="group-label">Zoom</span>
+      <button type="button" class="btn" id="zoom-out" aria-label="Zoom out">&minus;</button>
+      <span class="readout" id="zoom-readout">16&times;</span>
+      <button type="button" class="btn" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="btn" id="zoom-fit">Fit</button>
+    </div>
+
+    <div class="group" role="group" aria-label="Grid lines">
+      <span class="group-label">Grid</span>
+      <button type="button" class="btn" id="grid-toggle" title="Grid lines (G)">on</button>
+    </div>
+
+    <div class="group" role="group" aria-label="Symmetry">
+      <span class="group-label">Symmetry</span>
+      <button type="button" class="btn" id="symmetry-toggle" title="Symmetry (S)">off</button>
+    </div>
+
+    <button type="button" class="btn" id="undo">Undo</button>
+    <button type="button" class="btn" id="redo">Redo</button>
+    <button type="button" class="btn" id="workspace-toggle" title="Image workspace (W)">Image</button>
+  </header>
+
+  <!-- ── The alert bar ────────────────────────────────────────────────────── -->
+  <!-- A failed load used to write its message into a panel that was hidden,
+       so the app said nothing at all. This is always where it goes. -->
+  <div class="alert" id="alert" hidden>
+    <span class="alert-text" id="alert-text"></span>
+    <button type="button" class="btn" id="alert-dismiss">Dismiss</button>
+  </div>
+
+  <!-- ── Reference strip ──────────────────────────────────────────────────── -->
+  <div class="reference-strip" id="reference-strip" hidden>
+    <span class="group-label">Reference</span>
+    <button type="button" class="btn" id="reference-load">Load&hellip;</button>
+    <span class="strip-name" id="reference-name">image</span>
+    <div class="group" role="group" aria-label="Reference mode">
+      <span class="group-label">Mode</span>
+      <button type="button" class="btn" id="reference-mode" title="Reference mode (M)">off</button>
+    </div>
+    <label class="strip-label" for="reference-opacity">
+      Opacity
+      <input type="range" id="reference-opacity" min="0" max="100" value="50">
+      <span class="readout" id="reference-opacity-value">50%</span>
+    </label>
+    <div class="group" role="group" aria-label="Reference fit">
+      <span class="group-label">Fit</span>
+      <button type="button" class="btn" id="reference-fit" title="Reference fit (F)">cover</button>
+    </div>
+    <button type="button" class="btn" id="reference-clear">Clear</button>
+    <span class="never">never uploaded</span>
+  </div>
+
+  <!-- ── Inline panels ────────────────────────────────────────────────────── -->
+  <div class="panel-row" id="panels">
+    <div class="inline-panel" id="resize-panel" hidden>
+      <span id="resize-label">Resize?</span>
+      <button type="button" class="btn" id="resize-confirm">Resize</button>
+      <button type="button" class="btn" id="resize-cancel">Cancel</button>
+    </div>
+
+    <div class="inline-panel" id="export-panel" hidden>
+      <span class="panel-label">PNG scale</span>
+      <button type="button" class="btn" id="export-scale-1">1&times;</button>
+      <button type="button" class="btn" id="export-scale-4">4&times;</button>
+      <button type="button" class="btn" id="export-scale-8">8&times;</button>
+      <button type="button" class="btn" id="export-scale-16">16&times;</button>
+      <button type="button" class="btn" id="export-scale-32">32&times;</button>
+      <button type="button" class="btn" id="export-background">Background: transparent</button>
+    </div>
+
+    <div class="inline-panel" id="import-panel" hidden>
+      <button type="button" class="btn" id="import-json">Import JSON&hellip;</button>
+      <button type="button" class="btn" id="import-png">Import PNG&hellip;</button>
+      <button type="button" class="btn" id="import-reference">Load PNG as reference&hellip;</button>
+      <span class="panel-label">JSON palette</span>
+      <button type="button" class="btn import-mode is-active" id="import-adopt">Adopt the file&rsquo;s</button>
+      <button type="button" class="btn import-mode" id="import-remap">Remap to mine</button>
+      <button type="button" class="btn" id="import-scale" hidden>Scale</button>
+      <button type="button" class="btn" id="import-crop" hidden>Crop top-left</button>
+      <span class="panel-error" id="import-error"></span>
+    </div>
+  </div>
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="side-block">
+
+      <section class="side-group">
+        <h2 class="side-title">Palette</h2>
+        <label class="side-label" for="palette-select">Use</label>
+        <select id="palette-select" class="select"></select>
+
+        <label class="side-label" for="palette-name">Name</label>
+        <input type="text" id="palette-name" class="text-input" aria-label="Palette name" placeholder="palette name">
+      </section>
+
+      <section class="side-group">
+        <h2 class="side-title">Colours</h2>
+        <div class="swatch-grid" id="swatch-grid"></div>
+        <p class="side-note" id="palette-count"></p>
+        <p class="side-note accent-note" id="palette-stage-note" hidden></p>
+
+        <div class="side-row wrap">
+          <button type="button" class="btn" id="palette-add">+ Add</button>
+          <button type="button" class="btn" id="palette-reorder">&#8645; Reorder</button>
+          <button type="button" class="btn" id="palette-remove">&#128465; Remove</button>
+        </div>
+
+        <label class="side-label" for="colour-input">Active colour</label>
+        <div class="side-row">
+          <input type="color" id="colour-input" aria-label="Pick a colour">
+          <input type="text" id="colour-hex" class="text-input hex-input" aria-label="Hex colour" placeholder="#rrggbb" spellcheck="false">
+        </div>
+      </section>
+
+      <section class="side-group">
+        <h2 class="side-title">Palette actions</h2>
+        <div class="side-row wrap">
+          <button type="button" class="btn" id="palette-save">Save</button>
+          <button type="button" class="btn" id="palette-duplicate">Duplicate</button>
+          <button type="button" class="btn" id="palette-delete">Delete</button>
+        </div>
+
+        <button type="button" class="btn wide" id="palette-generate">Generate from image&hellip;</button>
+        <p class="side-note" id="sidebar-note"></p>
+      </section>
+
+    </div>
+  </aside>
+
+  <!-- ── Centre ───────────────────────────────────────────────────────────── -->
+  <main class="centre" id="centre">
+
+    <div class="canvas-view" id="canvas-view">
+      <div class="canvas-region" id="canvas-region">
+        <canvas class="art-canvas" id="art-canvas" width="256" height="256"></canvas>
+      </div>
+    </div>
+
+    <div class="workspace" id="workspace" hidden>
+
+      <div class="ws-blocks">
+        <!-- The scrolling part. The primary action is pinned below it, so it
+             can never be scrolled out of reach or sliced in half. -->
+        <div class="ws-scroll">
+
+        <section class="ws-block">
+          <h2 class="ws-title">Source</h2>
+          <p class="ws-note" id="ws-load-note"></p>
+          <div class="ws-row">
+            <span class="panel-label">Framing</span>
+            <button type="button" class="btn" id="ws-fit">Fit</button>
+            <button type="button" class="btn" id="ws-pixel">Pixel</button>
+            <button type="button" class="btn" id="ws-zoom-out">&minus;</button>
+            <span class="readout" id="ws-zoom-readout">1&times;</span>
+            <button type="button" class="btn" id="ws-zoom-in">+</button>
+          </div>
+
+          <div class="ws-slider">
+            <label for="ws-black">Black point <span class="readout" id="ws-black-value">0%</span></label>
+            <input type="range" id="ws-black" min="0" max="40" value="0">
+          </div>
+          <div class="ws-slider">
+            <label for="ws-white">White point <span class="readout" id="ws-white-value">100%</span></label>
+            <input type="range" id="ws-white" min="60" max="100" value="100">
+          </div>
+          <div class="ws-slider">
+            <label for="ws-brightness">Brightness <span class="readout" id="ws-brightness-value">100%</span></label>
+            <input type="range" id="ws-brightness" min="0" max="200" value="100">
+          </div>
+          <div class="ws-slider">
+            <label for="ws-contrast">Contrast <span class="readout" id="ws-contrast-value">100%</span></label>
+            <input type="range" id="ws-contrast" min="0" max="200" value="100">
+          </div>
+          <div class="ws-slider">
+            <label for="ws-saturation">Saturation <span class="readout" id="ws-saturation-value">100%</span></label>
+            <input type="range" id="ws-saturation" min="0" max="200" value="100">
+          </div>
+          <div class="ws-slider">
+            <label for="ws-hue">Hue shift <span class="readout" id="ws-hue-value">0&deg;</span></label>
+            <input type="range" id="ws-hue" min="-180" max="180" value="0">
+          </div>
+          <div class="ws-row">
+            <label class="check"><input type="checkbox" id="ws-grey"> Greyscale</label>
+            <button type="button" class="btn" id="ws-auto-levels" title="Auto levels (L)">Auto levels</button>
+          </div>
+        </section>
+
+        <section class="ws-block">
+          <h2 class="ws-title">Palette</h2>
+          <div class="ws-row">
+            <span class="panel-label">Colours</span>
+            <button type="button" class="btn" id="ws-count-16">16</button>
+            <button type="button" class="btn is-active" id="ws-count-32">32</button>
+            <button type="button" class="btn" id="ws-count-64">64</button>
+            <button type="button" class="btn" id="ws-extract">Extract</button>
+          </div>
+          <p class="ws-note" id="ws-palette-status"></p>
+
+          <div class="ws-tune" id="ws-tune" hidden>
+            <div class="ws-slider">
+              <label for="ws-tune-saturation">Saturation</label>
+              <input type="range" id="ws-tune-saturation" min="0" max="200" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-tune-brightness">Brightness</label>
+              <input type="range" id="ws-tune-brightness" min="0" max="200" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-tune-contrast">Contrast</label>
+              <input type="range" id="ws-tune-contrast" min="0" max="200" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-tune-hue">Hue shift</label>
+              <input type="range" id="ws-tune-hue" min="-180" max="180" value="0">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-tune-posterise">Posterise</label>
+              <input type="range" id="ws-tune-posterise" min="0" max="8" value="0">
+            </div>
+            <div class="ws-row wrap">
+              <button type="button" class="btn" id="ws-preset-pop">Sprite pop</button>
+              <button type="button" class="btn" id="ws-preset-muted">Muted</button>
+              <button type="button" class="btn" id="ws-preset-deep">Deep</button>
+              <button type="button" class="btn" id="ws-preset-pastel">Pastel</button>
+              <button type="button" class="btn" id="ws-preset-normalise">Normalise</button>
+            </div>
+            <p class="ws-note" id="ws-tune-status"></p>
+          </div>
+
+          <div class="ws-targets" id="ws-targets" hidden>
+            <div class="ws-row wrap">
+              <button type="button" class="btn" id="ws-target-replace">Replace active</button>
+              <button type="button" class="btn" id="ws-target-append">Append</button>
+              <button type="button" class="btn" id="ws-target-new">Save as new&hellip;</button>
+              <button type="button" class="btn" id="ws-stage-cancel">Cancel</button>
+            </div>
+            <div class="ws-row">
+              <input type="text" id="ws-target-name" class="text-input" placeholder="new palette name" aria-label="New palette name">
+            </div>
+          </div>
+        </section>
+
+        <section class="ws-block">
+          <h2 class="ws-title">Convert</h2>
+          <div class="ws-row">
+            <span class="panel-label">Size</span>
+            <button type="button" class="btn" id="ws-size-16">16</button>
+            <button type="button" class="btn is-active" id="ws-size-32">32</button>
+            <button type="button" class="btn" id="ws-size-64">64</button>
+            <button type="button" class="btn" id="ws-size-128">128</button>
+            <button type="button" class="btn" id="ws-size-256">256</button>
+          </div>
+          <div class="ws-row">
+            <span class="panel-label">Sample</span>
+            <button type="button" class="btn import-mode is-active" data-group="ws-sample" data-value="average" id="ws-sample-average">Average</button>
+            <button type="button" class="btn import-mode" data-group="ws-sample" data-value="nearest" id="ws-sample-nearest">Nearest</button>
+          </div>
+          <div class="ws-row wrap">
+            <span class="panel-label">Match</span>
+            <button type="button" class="btn import-mode is-active" data-group="ws-match" data-value="flat" id="ws-match-flat">Flat</button>
+            <button type="button" class="btn import-mode" data-group="ws-match" data-value="bayer" id="ws-match-bayer">Bayer</button>
+            <button type="button" class="btn import-mode" data-group="ws-match" data-value="floyd" id="ws-match-floyd">Floyd</button>
+            <button type="button" class="btn import-mode" data-group="ws-match" data-value="clustered" id="ws-match-clustered">Clustered</button>
+          </div>
+        </section>
+
+        </div>
+
+        <!-- The pinned action. It never scrolls away and is never cut. -->
+        <div class="ws-foot">
+          <button type="button" class="btn wide accent-btn" id="ws-convert">Convert to canvas</button>
+          <p class="ws-note" id="ws-status"></p>
+        </div>
+      </div>
+
+      <div class="ws-stage">
+        <!-- The pane label is a header, not an overlay: it used to sit on top
+             of the image, and the grid lines ran through the text. -->
+        <div class="ws-pane">
+          <div class="pane-head"><span class="pane-label">Source &middot; pan and zoom</span></div>
+          <canvas id="source-pane"></canvas>
+          <p class="pane-empty" id="ws-source-empty">Drop an image here, or press I</p>
+        </div>
+        <div class="ws-pane">
+          <div class="pane-head"><span class="pane-label">Result &middot; live</span></div>
+          <canvas id="preview-pane"></canvas>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ── Bottom bar ───────────────────────────────────────────────────────── -->
+  <!-- The artwork's own lifecycle: make it, bring it in, take it out. The top
+       bar is for working on it. -->
+  <footer class="bottom-bar" id="bottom">
+    <button type="button" class="btn" id="new-canvas" title="New (R)">New</button>
+    <button type="button" class="btn" id="resize-toggle">Resize</button>
+    <button type="button" class="btn" id="import">Import</button>
+    <button type="button" class="btn" id="export-png">Export PNG</button>
+    <button type="button" class="btn" id="export-json">Export JSON</button>
+    <button type="button" class="btn" id="copy-png">Copy PNG</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn dim" id="forget">Forget everything</button>
+  </footer>
+
+</div>
+
+<!-- Hidden file inputs. Nothing is uploaded — these files are read locally. -->
+<input type="file" id="file-image" accept="image/*" hidden>
+<input type="file" id="file-json" accept="application/json,.json" hidden>
+<input type="file" id="file-png" accept="image/png" hidden>
+
+<script src="js/quantise.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/history.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/canvas.js"></script>
+<script src="js/reference.js"></script>
+<script src="js/io.js"></script>
+<script src="js/workspace.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,797 @@
+/* ==========================================================================
+   VoidPixlr — style.css
+
+   The Void aesthetic, unchanged from v1 and still the product:
+
+     · no gradients
+     · no rounded corners
+     · no animations and no transitions
+     · no shadows, except the canvas glow
+
+   The type is the operating system's. No web fonts, no CDN, no third-party
+   anything — the page loads exactly the files it needs, from its own server.
+   ========================================================================== */
+
+:root {
+  --bg: #0d0d0f;
+  --fg: #e8e8ea;
+  --muted: #7a7a82;
+  --accent: #4f4fff;
+  --accent-soft: rgba(79, 79, 255, 0.20);
+  --edge: rgba(79, 79, 255, 0.40);
+  --pixel-empty: #1a1a1f;
+  --grid-line: rgba(255, 255, 255, 0.08);
+  --wash: rgba(13, 13, 15, 0.45);
+
+  --topbar: 48px;
+  --strip: 36px;
+  --sidebar: 200px;
+  --font: Inter, "JetBrains Mono", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* The `hidden` attribute must win over any layout rule below it — several
+   elements here are laid out with flex or grid, which would otherwise
+   override the browser's own `[hidden] { display: none }`. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "top     top"
+    "alert   alert"
+    "strip   strip"
+    "panels  panels"
+    "sidebar centre"
+    "bottom  bottom";
+  height: 100vh;
+  width: 100%;
+}
+
+.top-bar { grid-area: top; }
+.alert { grid-area: alert; }
+.reference-strip { grid-area: strip; }
+.panel-row { grid-area: panels; }
+.sidebar { grid-area: sidebar; }
+.centre { grid-area: centre; }
+.bottom-bar { grid-area: bottom; }
+
+/* ── The top bar ──────────────────────────────────────────────────────────── */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--topbar);
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(79, 79, 255, 0.14);
+  overflow-x: auto;
+}
+
+.wordmark {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* The label that says what a group of buttons is for. Without it a row of
+   numbers, or a lone "G", gave no clue. Uppercase and letter-spaced, to
+   match the workspace's section titles. */
+.group-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  margin-right: 3px;
+}
+
+/* The alert bar. A failed load used to write into a panel that was hidden,
+   so the app said nothing at all. */
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 79, 79, 0.35);
+  background: rgba(255, 79, 79, 0.08);
+}
+
+.alert-text {
+  color: #ff8080;
+  font-size: 12px;
+}
+
+.alert .btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.readout {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 0;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.btn.dim {
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn.dim:hover {
+  color: var(--fg);
+}
+
+.btn.wide {
+  width: 100%;
+  text-align: center;
+  margin-top: 6px;
+}
+
+.accent-btn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.accent-btn:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.size-btn {
+  min-width: 38px;
+}
+
+/* ── The reference strip ───────────────────────────────────────────────────── */
+
+.reference-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--strip);
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(79, 79, 255, 0.14);
+  background: rgba(79, 79, 255, 0.04);
+  overflow-x: auto;
+}
+
+.strip-name {
+  color: var(--muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strip-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.never {
+  color: var(--accent);
+  border: 1px solid var(--edge);
+  padding: 3px 7px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── Inline panels ─────────────────────────────────────────────────────────── */
+
+.panel-row:empty {
+  display: none;
+}
+
+.inline-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(79, 79, 255, 0.14);
+}
+
+.inline-panel[hidden] {
+  display: none;
+}
+
+.panel-label {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.panel-error {
+  color: #ff4f4f;
+  font-size: 12px;
+}
+
+/* ── The sidebar ───────────────────────────────────────────────────────────── */
+
+.sidebar {
+  border-right: 1px solid rgba(79, 79, 255, 0.14);
+  padding: 10px;
+  display: grid;
+  /* Palette, colours, actions. The colours section takes the slack, so the
+     swatch grid is the only thing that ever scrolls — no control is ever
+     cut in half by the edge of the column. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.side-block {
+  display: contents;
+}
+
+/* A titled group inside the sidebar, so the controls are not one long
+   undifferentiated list. */
+.side-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(79, 79, 255, 0.12);
+  min-height: 0;
+}
+
+.side-group > * {
+  flex: 0 0 auto;
+}
+
+.side-group:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.side-title {
+  margin: 0;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.side-label {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.side-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.side-row.wrap {
+  flex-wrap: wrap;
+}
+
+.side-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  min-height: 14px;
+}
+
+.accent-note {
+  color: var(--accent);
+}
+
+.select,
+.text-input {
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 0;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 6px;
+  width: 100%;
+}
+
+.select:focus,
+.text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.hex-input {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 0;
+  padding: 0;
+  width: 34px;
+  height: 26px;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 0;
+}
+
+input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 0;
+}
+
+/* ── The swatch grid ───────────────────────────────────────────────────────── */
+
+/* The swatch grid is the only part of the sidebar that scrolls. It takes
+   the slack the column has and keeps everything else at its natural size,
+   so no button is ever sliced by the edge. */
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 30px);
+  align-content: start;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.swatch {
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0;
+  cursor: pointer;
+  position: relative;
+}
+
+.swatch.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.swatch.is-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 1px;
+}
+
+.swatch.is-dragging {
+  opacity: 0.4;
+}
+
+/* The eraser tile: a slash, visually distinct from a colour. Drawn with a
+   rotated rule rather than a gradient — the aesthetic forbids gradients. */
+.swatch-eraser {
+  background: var(--pixel-empty);
+  border-color: var(--edge);
+  position: relative;
+}
+
+.swatch-eraser::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 1px;
+  background: var(--muted);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* ── The centre ────────────────────────────────────────────────────────────── */
+
+.centre {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.canvas-view {
+  position: absolute;
+  inset: 0;
+}
+
+.canvas-view[hidden] {
+  display: none;
+}
+
+.canvas-region {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.art-canvas {
+  display: block;
+  border: 1px solid var(--accent-soft);
+  box-shadow: 0 0 12px var(--accent-soft);
+  touch-action: none;
+  cursor: crosshair;
+  image-rendering: pixelated;
+}
+
+.canvas-view.is-drop-target .art-canvas {
+  border-color: var(--accent);
+}
+
+/* ── The Image workspace ───────────────────────────────────────────────────── */
+
+.workspace {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.workspace[hidden] {
+  display: none;
+}
+
+.ws-blocks {
+  border-right: 1px solid rgba(79, 79, 255, 0.14);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+/* The scrolling column of controls. */
+.ws-scroll {
+  overflow-y: auto;
+  padding: 10px;
+  min-height: 0;
+}
+
+/* The pinned action. "Convert to canvas" is the point of the whole
+   workspace, so it sits at the bottom of the column, always visible —
+   never scrolled out of reach and never sliced in half by the edge. */
+.ws-foot {
+  border-top: 1px solid rgba(79, 79, 255, 0.14);
+  padding: 8px 10px;
+  background: var(--bg);
+}
+
+.ws-foot .ws-note {
+  margin: 6px 0 0;
+}
+
+.ws-block {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(79, 79, 255, 0.12);
+}
+
+.ws-block:last-child {
+  border-bottom: none;
+}
+
+.ws-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ws-note {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.ws-row.wrap {
+  flex-wrap: wrap;
+}
+
+.ws-slider {
+  margin-bottom: 6px;
+}
+
+.ws-slider label {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.ws-tune,
+.ws-targets {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(79, 79, 255, 0.12);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ws-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.ws-pane {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid rgba(79, 79, 255, 0.14);
+  overflow: hidden;
+}
+
+.ws-pane:last-child {
+  border-right: none;
+}
+
+/* The pane's own header row. The label used to float over the canvas, and
+   the grid lines ran straight through the text. */
+.pane-head {
+  border-bottom: 1px solid rgba(79, 79, 255, 0.14);
+  padding: 5px 8px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.ws-pane canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+
+#source-pane {
+  cursor: grab;
+}
+
+#source-pane.is-panning {
+  cursor: grabbing;
+}
+
+.pane-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.pane-empty {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.pane-empty[hidden] {
+  display: none;
+}
+
+/* ── The bottom bar ────────────────────────────────────────────────────────── */
+
+.bottom-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--topbar);
+  padding: 0 10px;
+  border-top: 1px solid rgba(79, 79, 255, 0.14);
+}
+
+/* ── Range inputs ──────────────────────────────────────────────────────────── */
+
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  width: 100%;
+  height: 16px;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--edge);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 1px;
+  background: var(--edge);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px;
+  height: 13px;
+  margin-top: -6px;
+  background: var(--accent);
+  border: none;
+  border-radius: 0;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 9px;
+  height: 13px;
+  background: var(--accent);
+  border: none;
+  border-radius: 0;
+}
+
+.strip-label input[type="range"] {
+  width: 90px;
+}
+
+/* ── The 404 page ─────────────────────────────────────────────────────────── */
+
+.notfound {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 10%;
+}
+
+.notfound-code {
+  margin: 0;
+  color: var(--accent);
+  letter-spacing: 0.2em;
+  font-size: 12px;
+}
+
+.notfound-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.notfound-text {
+  margin: 4px 0 16px;
+  color: var(--muted);
+}
+
+.notfound-note {
+  margin: 24px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ── Narrower windows ──────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .ws-stage {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* On a short window the sidebar's content is taller than the column, and
+   the scroll edge cut the last button in half — which reads as a broken
+   layout rather than as a scrollable one. The swatch grid now takes the
+   slack instead, so the column never overflows at any height. */

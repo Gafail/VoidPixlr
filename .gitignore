@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+www/
+
+# python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# logs
+*.log
+
+# transient test output — the recorded screenshots in docs/shots/ are kept,
+# these are whatever the last run happened to leave behind.
+tests/browser/shots/
+
+# the diagnostic page and error probe the browser suites write
+.vp-diag.html
+.vp-probe.js
+.vp-test-image.png
