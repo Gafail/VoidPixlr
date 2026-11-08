@@ -63,11 +63,11 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 120 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 127 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py            # 71 end-to-end checks
+python3 tests/browser/e2e.py            # 85 end-to-end checks
 python3 tests/browser/hostile.py        # 31 hostile-input checks
 ```
 
@@ -134,6 +134,29 @@ from what nginx will send.
 - **`VP.reference.mode` and `VP.reference.state.mode` are the same thing.**
   The module exposes its state as properties, so the two spellings cannot
   drift. Do the same for any new module state.
+- **The reduced copy and the full copy are not the same thing.** While a
+  control is moving only the reduced copy of the photo is updated; the
+  full-resolution copy keeps the last *settled* value, so the underlay does
+  not flicker. Anything that renders from the full copy must first call
+  `VP.reference.commitAdjust()`, or it will show a stale value — this is
+  what made the preview snap back and the source pane look frozen.
+- **Transform the palette from the original, never from the last result.**
+  `VP.palette.transformStaged()` always starts from `stagedSource`. Doing
+  it otherwise compounds: every slider move applies on top of the previous
+  one and the colours never come back.
+- **A palette change has to reach the workspace.** `renderAll()` redraws
+  the sidebar and the bars, but the workspace's live preview is made *of*
+  the palette. Without `VP.workspace.refresh()` in `renderAll()`, switching
+  the palette leaves the preview showing the old palette's result.
+- **The layout diagnostic measures rectangles, not pixels.** It clips every
+  box to its scroll containers before comparing them — an element hanging
+  past a scrolling container's edge is clipped by it, so it cannot overlap
+  what is outside. A `position: fixed` element escapes its DOM ancestors'
+  overflow, so it is *not* clipped by them.
+- **Never expire an armed confirmation on a timer.** `armConfirm` waits for
+  a second click, a click elsewhere, or Escape. A timeout turned "New" into
+  a trap — click, pause, click again, and the second click armed it a
+  second time instead of confirming it.
 - **Never call `URL.createObjectURL`.** The shared CSP's `img-src` has no
   `blob:`, and the no-upload guarantee rules it out by name. Downloads go
   out as `data:` URLs.
@@ -184,7 +207,7 @@ from what nginx will send.
   infrastructure for the container. Never copy or symlink this folder into
   another repository; a duplicate copy is a second thing to forget to update,
   and this project has already drifted once because of it.
-- Current deployed version: **v2.0 r10, live at http://192.168.100.100/**.
+- Current deployed version: **v2.0 r11, live at http://192.168.100.100/**.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.

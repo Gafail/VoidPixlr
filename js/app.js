@@ -24,7 +24,6 @@
     exportBackground: null,
     importMode: "adopt",
     pendingResize: null,
-    confirmTimer: null,
     prefs: {
       scale: 16,
       fitZoom: false,
@@ -108,26 +107,45 @@
   }
 
   /* Two-step inline confirmation: the label changes, and a second click
-     within the window does the thing. No native confirm(). */
+     does the thing. No native confirm().
+
+     It stays armed until the user clicks again, clicks somewhere else, or
+     presses Escape. It does NOT expire on a timer. The expiry made "New" a
+     trap: click it, read the label, look away for a moment, click again —
+     and the second click armed it a second time instead of confirming it,
+     so the canvas never cleared and the button looked simply broken. */
+  const ARMED = [];
+
+  function disarmConfirm(node) {
+    if (!node) return;
+    node.dataset.armed = "0";
+    node.textContent = node.dataset.label || node.textContent;
+    const index = ARMED.indexOf(node);
+    if (index >= 0) ARMED.splice(index, 1);
+  }
+
   function armConfirm(node, onConfirm) {
     if (!node) return;
     if (node.dataset.armed === "1") {
-      node.dataset.armed = "0";
-      if (state.confirmTimer) clearTimeout(state.confirmTimer);
-      state.confirmTimer = null;
-      node.textContent = node.dataset.label || node.textContent;
+      disarmConfirm(node);
       onConfirm();
       return;
     }
     node.dataset.armed = "1";
     node.dataset.label = node.textContent;
     node.textContent = "Sure?";
-    if (state.confirmTimer) clearTimeout(state.confirmTimer);
-    state.confirmTimer = setTimeout(() => {
-      node.dataset.armed = "0";
-      node.textContent = node.dataset.label;
-      state.confirmTimer = null;
-    }, 2000);
+    if (ARMED.indexOf(node) < 0) ARMED.push(node);
+  }
+
+  /* A click anywhere else cancels an armed confirmation. Registered once. */
+  function watchConfirmations() {
+    document.addEventListener("click", (event) => {
+      if (!ARMED.length) return;
+      for (const node of ARMED.slice()) {
+        if (node.contains(event.target)) continue;
+        disarmConfirm(node);
+      }
+    });
   }
 
   /* --- undo and redo ----------------------------------------------------------- */
@@ -182,6 +200,11 @@
     renderTopBar();
     renderReferenceStrip();
     renderBottomBar();
+    /* A palette change has to reach the workspace's live preview as well —
+       the swatch grid is only half of it. Without this, switching the
+       palette in the sidebar left the preview showing the previous
+       palette's result. */
+    if (VP.workspace.isOpen()) VP.workspace.refresh();
   }
 
   function renderTopBar() {
@@ -538,6 +561,7 @@
         autosave();
         renderReferenceStrip();
       });
+      VP.workspace.attachReset(opacity, "the reference opacity");
     }
 
     const fit = $("reference-fit");
@@ -1111,6 +1135,10 @@
           break;
         }
         case "Escape":
+          if (ARMED.length) {
+            for (const node of ARMED.slice()) disarmConfirm(node);
+            break;
+          }
           if (VP.workspace.isOpen()) {
             VP.workspace.close();
             renderAll();
@@ -1170,6 +1198,7 @@
     };
 
     VP.workspace.init();
+    watchConfirmations();
     VP.workspace.state.panX = state.prefs.srcPanX || 0;
     VP.workspace.state.panY = state.prefs.srcPanY || 0;
     VP.workspace.state.zoom = state.prefs.srcZoom || 1;

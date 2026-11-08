@@ -54,6 +54,10 @@
     source: null,
     adjust: Q.defaultAdjust(),
     onChange: null,
+    /* True when the full-resolution copy is behind the current adjustment.
+       While a control is moving only the reduced copy is updated, so the full
+       copy has to be brought up to date when the control settles. */
+    adjustedStale: false,
   };
 
   R.state = state;
@@ -324,6 +328,7 @@
 
         paintCanvas(state.source.canvas, base);
         paintCanvas(state.source.canvasSmall, small);
+        state.adjustedStale = false;
 
         R.resample();
         R.notify();
@@ -338,6 +343,7 @@
   R.clear = function clear() {
     state.source = null;
     state.adjust = Q.defaultAdjust();
+    state.adjustedStale = false;
     const buffer = VP.canvas.referenceBuffer();
     const context = VP.canvas.referenceContext();
     if (buffer && context) {
@@ -364,18 +370,38 @@
     if (fast) {
       /* The reduced copy only. The full-resolution image keeps the last
          settled adjustment, so the underlay does not flicker while a slider
-         is moving. */
+         is moving. It is brought up to date by commitAdjust() when the
+         control settles. */
       state.source.adjustedSmall = Q.applyAdjustments(state.source.small, state.adjust);
       paintCanvas(state.source.canvasSmall, state.source.adjustedSmall);
+      state.adjustedStale = true;
     } else {
       state.source.adjusted = Q.applyAdjustments(state.source.base, state.adjust);
       paintCanvas(state.source.canvas, state.source.adjusted);
       state.source.adjustedSmall = Q.applyAdjustments(state.source.small, state.adjust);
       paintCanvas(state.source.canvasSmall, state.source.adjustedSmall);
+      state.adjustedStale = false;
     }
 
     R.resample();
     R.notify();
+  };
+
+  /* Brings the full-resolution copy up to date with the current adjustment.
+
+     This is what the settle calls. Without it the full-resolution pass
+     renders the *last settled* adjustment — stale, and wrong — while the
+     control is still being moved. The settle must not wait for a `change`
+     event either, because a control can be left without one: a drag that
+     ends off the track, a value set from the keyboard, a reset button.
+     Whichever way the value changed, the settle renders what is current. */
+  R.commitAdjust = function commitAdjust() {
+    if (!state.source || !state.adjustedStale) return false;
+    state.source.adjusted = Q.applyAdjustments(state.source.base, state.adjust);
+    paintCanvas(state.source.canvas, state.source.adjusted);
+    state.adjustedStale = false;
+    R.resample();
+    return true;
   };
 
   R.resetAdjust = function resetAdjust() {
@@ -386,8 +412,16 @@
   R.autoLevels = function autoLevels() {
     if (!state.source) return null;
     const levels = Q.autoLevels(state.source.base);
-    R.setAdjust({ black: levels.black, white: levels.white }, false);
-    return levels;
+    if (!levels) return null;
+    /* The black and white sliders can only show 0–40% and 60–100%. An
+       auto-level outside that would leave the slider and the state
+       disagreeing — the thumb pinned at an end while the readout said
+       something else — so the result is clamped to what the controls can
+       actually represent. */
+    const black = Math.min(0.4, Math.max(0, levels.black));
+    const white = Math.min(1, Math.max(0.6, levels.white));
+    R.setAdjust({ black, white }, false);
+    return { black, white };
   };
 
   /* The image the workspace should draw: a canvas, because ImageData is not

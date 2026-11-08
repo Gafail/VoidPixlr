@@ -71,10 +71,19 @@
        is tuning. It is live in the sidebar and in the pixel preview, but the
        real palette is untouched until Apply. */
     staged: null,
+    /* The untransformed extraction the staging palette was made from. */
+    stagedSource: null,
     stagedTransform: null,
   };
 
   P.state = state;
+
+  /* Throws the staging palette away, with everything that came with it. */
+  function clearStaged() {
+    state.staged = null;
+    state.stagedSource = null;
+    state.stagedTransform = null;
+  }
 
   /* Hooks the app fills in: remapping the canvas, persisting, re-rendering. */
   P.hooks = {
@@ -314,13 +323,15 @@
 
   P.stage = function stage(colours) {
     state.staged = colours.slice();
+    /* The untransformed extraction. Every transform starts from this, never
+       from the last result — see transformStaged. */
+    state.stagedSource = colours.slice();
     state.stagedTransform = null;
     if (P.hooks.render) P.hooks.render();
   };
 
   P.unstage = function unstage() {
-    state.staged = null;
-    state.stagedTransform = null;
+    clearStaged();
     if (P.hooks.render) P.hooks.render();
   };
 
@@ -331,7 +342,12 @@
   /* Applies a transform to the staging palette and keeps the merge count. */
   P.transformStaged = function transformStaged(transform) {
     if (!state.staged) return null;
-    const result = Q.transformPalette(state.staged, transform);
+    /* Always transform from the ORIGINAL extraction. Transforming the last
+       result instead compounds: every slider move would apply on top of the
+       previous one, so the colours would run away while you dragged and
+       putting the slider back would not restore them. */
+    const base = state.stagedSource || state.staged;
+    const result = Q.transformPalette(base, transform);
     state.staged = result.colours;
     state.stagedTransform = transform;
     state.stagedMerged = result.merged;
@@ -351,8 +367,7 @@
 
     if (target === "new") {
       const entry = P.createPalette(name || "From image", staged, staged.length > 32 ? 64 : staged.length > 16 ? 32 : 16);
-      state.staged = null;
-      state.stagedTransform = null;
+      clearStaged();
       state.activeName = entry.name;
       state.activeIndex = 0;
       if (P.hooks.save) P.hooks.save();
@@ -370,8 +385,7 @@
         );
         state.activeName = copy.name;
         state.activeIndex = 0;
-        state.staged = null;
-        state.stagedTransform = null;
+        clearStaged();
         if (P.hooks.save) P.hooks.save();
         if (P.hooks.render) P.hooks.render();
         return copy;
@@ -389,8 +403,7 @@
       active.colours = staged.slice();
     }
 
-    state.staged = null;
-    state.stagedTransform = null;
+    clearStaged();
     state.activeIndex = Math.min(state.activeIndex, Math.max(0, active.colours.length - 1));
     if (P.hooks.save) P.hooks.save();
     if (P.hooks.render) P.hooks.render();

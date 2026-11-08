@@ -180,6 +180,52 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >   `Gafail/VoidPixlr` as a **backup** — no Pages, no CI, no hosting. The
 >   upstream umbrella keeps only the registry row, the landing-page entry,
 >   and the shared `ops/` infrastructure for the container (§13.6).
+>
+> - **r11 (2026-11-08)** — **the controls and the page now agree with each
+>   other.** Five faults the user reported, all measured before they were
+>   fixed (§16.10):
+>
+>   1. **The preview snapped back when a control stopped moving.** While a
+>      control is moving only the reduced copy of the photo is updated; the
+>      full-resolution copy keeps the *last settled* value. The settle
+>      timer rendered that stale copy — so a fraction of a second after you
+>      stopped moving, the preview showed the value from before you started.
+>      The settle now **bakes the current adjustment into the full copy
+>      first**, so it renders what is current, not what was last committed.
+>   2. **The photo in the pane did not update until you nudged the image.**
+>      The pane is drawn from the full-resolution copy, and nothing redrew
+>      it when the settle brought that copy up to date. The settle now
+>      redraws the pane. This was the "you have to move the image to
+>      refresh" symptom exactly.
+>   3. **The tuning palette compounded.** Moving a palette-tuning slider
+>      transformed the *last result* instead of the original extraction, so
+>      every move applied on top of the previous one. The colours ran away
+>      while you dragged, and putting the slider back did not restore them.
+>      Every transform now starts from the original extraction.
+>   4. **The presets moved the state but not the sliders.** Clicking a
+>      preset changed the transform wholesale while the sliders went on
+>      showing the old values — so the next move of any slider jumped. The
+>      sliders now follow the state.
+>   5. **"New" did nothing if you were slow.** The two-click confirmation
+>      expired after two seconds, so clicking "New", reading the label,
+>      looking away for a moment and clicking again armed it a *second*
+>      time instead of confirming it. The canvas never cleared and the
+>      button looked broken. The confirmation now lasts until you confirm
+>      it, click elsewhere, or press Escape.
+>   6. **A palette change never reached the live preview.** The swatch grid
+>      is only half of a palette change. `renderAll()` redrew the sidebar
+>      and the bars but never the workspace, so switching the palette in
+>      the dropdown left the preview showing the previous palette's
+>      result — measured, the preview hash did not change at all. A
+>      palette change now refreshes the workspace too.
+>
+>   **Every slider now has a reset button.** The reset target is the value
+>   the slider ships with — its `value` attribute, which is the same number
+>   as the algorithm's default — so the button and the algorithm can never
+>   disagree about what "normal" is. The button re-dispatches the slider's
+>   own events, so a reset travels exactly the same path as the user
+>   moving the slider. A "Reset all" button does the same for the whole
+>   adjustment group.
 
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
@@ -318,7 +364,7 @@ Why the distinction is worth stating plainly:
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
   row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r10)
+- **Version:** 2.0 (revision r11)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
   10-minute doodles to serious sprite work and photo tracing.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -2368,8 +2414,8 @@ The build ships with three test suites, all dependency-free:
 
 | Suite | What it runs against | Checks |
 |---|---|---|
-| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 120 |
-| `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 71 |
+| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 127 |
+| `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 85 |
 | `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 31 |
 | `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 14 |
 
@@ -2611,6 +2657,133 @@ loosely enough to accept it in some engines' definitions, and the runtime
 check happens later. **A real browser is part of the test suite here, not a
 convenience.** The suite would have shipped green three times over.
 
+### 16.10 The controls and the page, and why they disagreed
+
+Five faults, reported together as "the page does not update properly, and
+New does nothing". Each was measured in a real browser before it was fixed,
+because the report was a symptom and not a cause.
+
+**The two-tier preview, and why it snapped back.** The preview has two
+tiers: a reduced one while a control is moving, and the full one when it
+settles. The reduced tier reads the *reduced* copy of the photo, which is
+updated on every `input`. The full tier reads the *full-resolution* copy —
+and while a control is moving, that copy is deliberately left alone, so the
+underlay does not flicker.
+
+Measured, by hashing the preview canvas after a brightness change that sent
+`input` but not `change`:
+
+| Moment | Preview | |
+|---|---|---|
+| before | `3090037504` | |
+| 50 ms after `input` | `2611964672` | correct — the reduced tier |
+| **450 ms (the settle)** | **`3090037504`** | **back to the old value** |
+| after `change` | `2611964672` | correct again |
+
+The settle timer rendered the full-resolution copy, which still held the
+value from before the drag. The preview reverted a fraction of a second
+after you stopped moving, and the page looked like it had never updated.
+
+The fix is one rule: **the settle bakes the current adjustment into the
+full copy before it samples.** `reference.js` now tracks whether the
+full copy is behind (`adjustedStale`), and `commitAdjust()` brings it up to
+date. The settle does not wait for a `change` event — a control can be
+left without one, and the value must be right either way.
+
+**Why the photo in the pane did not update until you nudged the image.**
+The pane is drawn from the full-resolution copy. Nothing redrew it when the
+settle brought that copy up to date, so it kept showing the old photo until
+something else redrew it — and panning the image is exactly that. This was
+the "you have to move the image to refresh" symptom, found by measurement
+rather than guessed at. The settle now redraws the pane.
+
+**The compounding palette.** `transformStaged` transformed `state.staged` —
+which is the *result* of the last transform. So every slider move applied
+on top of the previous one. Measured, by extracting a palette and then
+moving the saturation slider:
+
+| | first three colours |
+|---|---|
+| extracted | `#223177` `#313875` `#3e3f73` |
+| dragged to 148 | `#0e248b` `#212b85` `#313380` |
+| **put back to 100** | **`#001a99` `#0010a6` `#0003b1`** |
+
+Putting the slider back did not restore the colours. They were pinned at
+full saturation, because every intermediate value had been applied on top of
+the last one. The palette now keeps the untransformed extraction
+(`stagedSource`) and every transform starts from it.
+
+**The presets that moved the state but not the sliders.** `applyPreset`
+replaces the whole transform. The sliders kept their old positions, so the
+next move of any one of them jumped. Measured after clicking *Sprite pop*:
+
+| | saturation | brightness | contrast |
+|---|---|---|---|
+| the state | 135 | 108 | 110 |
+| the sliders | **150** | 108 | 110 |
+
+The sliders now follow the state.
+
+**The confirmation that expired.** "New" asked for a second click within two
+seconds. Measured, clicking twice with 2.5 seconds between them: the canvas
+still held 16 cells and the button read "Sure?" again — the second click
+had armed it a second time instead of confirming it. The confirmation now
+stays armed until the user confirms it, clicks elsewhere, or presses Escape.
+
+**The reset buttons.** Every slider has one now. The reset target is the
+slider's own shipped value — its `value` attribute — which is the same
+number as the algorithm's default, so the button and the algorithm cannot
+disagree about what "normal" is. The button re-dispatches the slider's own
+`input` and `change` events, so a reset travels exactly the same path as
+the user moving the slider: the preview, the underlay, the photo in the
+pane and the readouts all update the same way. A "Reset all" button does
+the same for the whole adjustment group.
+
+One inconsistency was closed while doing it: `autoLevels` could return a
+black or white point the sliders cannot represent (their ranges are 0–40%
+and 60–100%), which left the thumb pinned at an end while the readout said
+something else. The result is now clamped to what the controls can show.
+
+**The palette change that never reached the preview.** `renderAll()` redraws
+the swatch grid, the top bar, the reference strip and the bottom bar — but
+not the workspace. The palette is the one thing the live preview is made of,
+so switching the palette in the sidebar left the preview showing the
+previous palette's result. Measured, by hashing the preview canvas before
+and after switching to a palette with different colours:
+
+| | preview hash |
+|---|---|
+| before | `3090037504` |
+| **after the switch** | **`3090037504`** — unchanged |
+| after the fix | `720861952` |
+
+The fix is one line: a palette change refreshes the workspace too.
+
+**And a false alarm in the diagnostic itself.** The layout sweep reports
+overlapping text pairs, and at the narrowest window (900×650) it reported
+three: the sidebar's last button against the bottom bar's buttons. It was
+wrong, and it had been wrong before any of this work. Measured: the sidebar
+scrolls (`scrollHeight` 535 against a `clientHeight` of 480) and the button
+hangs past the sidebar's bottom edge — where the sidebar **clips** it. Its
+untruncated rectangle says it lands on the bottom bar; the pixels say
+otherwise.
+
+The diagnostic was measuring rectangles instead of what is on screen. It now
+clips every box to its scroll containers before comparing them, and a
+negative control confirms it still catches a real overlap: forcing one
+produces `undo × new-canvas  25×26px`, and the clean layout reports zero at
+all four window sizes.
+
+**How it is guarded now.** Seven node checks read the source and fail if the
+rules are broken again — every slider has a reset, the reset travels the
+slider's own path, the settle bakes the adjustment, the palette never
+compounds, a preset moves the sliders, a confirmation never expires, and a
+palette change reaches the preview. Eleven browser checks drive the real
+thing: the reset buttons work on the slider, the state and the preview; the
+preview survives the settle; the photo in the pane updates; the palette
+round-trips; a preset moves the sliders; a palette change reaches the
+preview; and "New" clears the canvas however slowly you click.
+
 ---
 
 ## 17. Risks & Known Behaviours
@@ -2763,12 +2936,12 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built, tested and live.** The source in this folder is the v2.0 r10 build,
+**Built, tested and live.** The source in this folder is the v2.0 r11 build,
 serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no
   dependencies, no framework.
-- 120 node checks, 71 end-to-end browser checks, 31 hostile-input checks,
+- 127 node checks, 85 end-to-end browser checks, 31 hostile-input checks,
   14 live-site checks — all passing, all dependency-free. Both browser
   suites also pass against the real shared CSP.
 - **Deployed and verified.** `./deploy.sh 192.168.100.100` installs the

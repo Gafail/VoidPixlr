@@ -43,6 +43,37 @@ TEXT_SELECTOR = """
 OVERLAP_JS = """
 const selector = %s;
 const nodes = Array.from(document.querySelectorAll(selector));
+
+// What you can see is a box clipped by every scroll container above it.
+// The sidebar's last button, for instance, hangs below the sidebar's edge;
+// the sidebar clips it, so it never lands on the bottom bar — but its
+// untruncated rect says it does. Measure the clipped box.
+function clippedRect(node) {
+  const rect = node.getBoundingClientRect();
+  let left = rect.left, top = rect.top;
+  let right = rect.right, bottom = rect.bottom;
+
+  // A fixed element escapes the overflow of its DOM ancestors — it is
+  // positioned against the viewport — so it must not be clipped by them.
+  const position = getComputedStyle(node).position;
+  let parent = node.parentElement;
+  while (parent && position !== 'fixed') {
+    const style = getComputedStyle(parent);
+    const clips = /(auto|scroll|hidden|clip)/.test(style.overflowY)
+               || /(auto|scroll|hidden|clip)/.test(style.overflowX);
+    if (clips) {
+      const box = parent.getBoundingClientRect();
+      left = Math.max(left, box.left);
+      top = Math.max(top, box.top);
+      right = Math.min(right, box.right);
+      bottom = Math.min(bottom, box.bottom);
+    }
+    parent = parent.parentElement;
+  }
+  if (right <= left || bottom <= top) return null;
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
 const boxes = [];
 for (const node of nodes) {
   const style = getComputedStyle(node);
@@ -52,10 +83,12 @@ for (const node of nodes) {
   if (rect.width < 1 || rect.height < 1) continue;
   const text = (node.textContent || '').trim();
   if (!text) continue;
+  const box = clippedRect(node);
+  if (!box) continue;
   boxes.push({
     id: node.id || node.className || node.tagName,
     text: text.slice(0, 40),
-    x: rect.left, y: rect.top, w: rect.width, h: rect.height,
+    x: box.x, y: box.y, w: box.w, h: box.h,
   });
 }
 const hits = [];

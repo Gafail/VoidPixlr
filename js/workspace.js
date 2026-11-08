@@ -316,6 +316,26 @@
     W.drawPreview(result, sample.size);
   }
 
+  /* The settle: bake the current adjustment into the full-resolution copy,
+     then render the full result.
+
+     This has to bake the adjustment FIRST. The full-resolution pass reads
+     the settled copy, and while a control is moving that copy is stale — so
+     without this the preview would snap back to the previous value a
+     fraction of a second after you stopped moving, and the page would look
+     like it had not updated at all. */
+  function settlePreview() {
+    if (VP.reference.commitAdjust && VP.reference.commitAdjust()) {
+      W.invalidate();
+      /* The source pane is drawn from the full-resolution copy, so it has to
+         be redrawn here. Without this the photo in the pane stays on the
+         old value until something else redraws it — and the user has to
+         nudge the image to make the page catch up. */
+      W.draw();
+    }
+    runPreview(false);
+  }
+
   /* While a control is moving: a reduced tier, drawn on the next frame.
      When it settles: the full-resolution result. */
   W.requestPreview = function requestPreview() {
@@ -328,7 +348,7 @@
     if (fullTimer) clearTimeout(fullTimer);
     fullTimer = setTimeout(() => {
       fullTimer = null;
-      runPreview(false);
+      settlePreview();
     }, 120);
   };
 
@@ -336,7 +356,74 @@
   W.commitPreview = function commitPreview() {
     if (fullTimer) clearTimeout(fullTimer);
     fullTimer = null;
-    runPreview(false);
+    settlePreview();
+  };
+
+  /* --- the reset buttons --------------------------------------------------------- */
+
+  /* Puts a reset button next to a slider.
+
+     The reset target is the value the slider ships with — its `value`
+     attribute — which is the same number as the algorithm's default, so the
+     button and the algorithm can never disagree about what "normal" is. The
+     button re-dispatches the slider's own events, so a reset travels the
+     same path as the user moving the slider: the preview, the underlay and
+     the readouts all update exactly as they do for a hand-made change. */
+  W.attachReset = function attachReset(slider, name) {
+    if (!slider) return null;
+    if (slider.dataset.hasReset === "1") return null;
+    slider.dataset.hasReset = "1";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-reset";
+    button.textContent = "reset";
+    button.title = "Reset " + name;
+    button.setAttribute("aria-label", "Reset " + name);
+    button.addEventListener("click", () => {
+      slider.value = slider.defaultValue;
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      slider.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const block = slider.closest(".ws-slider");
+    if (block) {
+      /* The workspace sliders: the range and its reset sit on one line. */
+      const row = document.createElement("div");
+      row.className = "ws-slider-row";
+      block.appendChild(row);
+      row.appendChild(slider);
+      row.appendChild(button);
+    } else {
+      /* The reference strip: the button goes beside the label, not inside
+         it. A button inside a label forwards its click to the labelled
+         control, which would make the slider jump. */
+      const label = slider.closest("label");
+      if (label) label.insertAdjacentElement("afterend", button);
+      else slider.insertAdjacentElement("afterend", button);
+    }
+    return button;
+  };
+
+  /* Moves the tune sliders to match the state. The presets replace the whole
+     transform, so without this the sliders would go on showing the old
+     values — and the next move of any one of them would jump.
+
+     A focused slider is updated too. The guard that used to skip it made
+     the sliders disagree with the state whenever the slider that had moved
+     was also the one the preset changed. */
+  W.syncTuneSliders = function syncTuneSliders() {
+    const tune = state.tune;
+    const set = (id, value) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.value = String(Math.round(value));
+    };
+    set("ws-tune-saturation", tune.saturation);
+    set("ws-tune-brightness", tune.brightness);
+    set("ws-tune-contrast", tune.contrast);
+    set("ws-tune-hue", tune.hue);
+    set("ws-tune-posterise", tune.posterise);
   };
 
   /* --- the palette block -------------------------------------------------------------- */
@@ -406,6 +493,9 @@
     const preset = Q.TRANSFORM_PRESETS[name];
     if (!preset) return;
     state.tune = Object.assign(Q.defaultTransform(), preset);
+    /* The sliders have to follow, or they would go on showing the old
+       values while the state had already moved on. */
+    W.syncTuneSliders();
     tunePalette(state.tune);
   };
 
@@ -644,6 +734,13 @@
     adjustment("ws-saturation", "saturation", (v) => parseFloat(v) / 100);
     adjustment("ws-hue", "hue", (v) => parseFloat(v));
 
+    W.attachReset(document.getElementById("ws-black"), "the black point");
+    W.attachReset(document.getElementById("ws-white"), "the white point");
+    W.attachReset(document.getElementById("ws-brightness"), "brightness");
+    W.attachReset(document.getElementById("ws-contrast"), "contrast");
+    W.attachReset(document.getElementById("ws-saturation"), "saturation");
+    W.attachReset(document.getElementById("ws-hue"), "the hue shift");
+
     on("ws-grey", "change", (event) => {
       VP.reference.setAdjust({ grey: event.target.checked }, false);
       W.invalidate();
@@ -653,6 +750,13 @@
     on("ws-auto-levels", "click", () => {
       const levels = VP.reference.autoLevels();
       if (!levels) return;
+      W.updateAdjustReadouts();
+      W.invalidate();
+      W.commitPreview();
+    });
+
+    on("ws-reset-adjust", "click", () => {
+      VP.reference.resetAdjust();
       W.updateAdjustReadouts();
       W.invalidate();
       W.commitPreview();
@@ -688,6 +792,12 @@
     tune("ws-tune-contrast", "contrast", (v) => parseFloat(v));
     tune("ws-tune-hue", "hue", (v) => parseFloat(v));
     tune("ws-tune-posterise", "posterise", (v) => parseFloat(v));
+
+    W.attachReset(document.getElementById("ws-tune-saturation"), "palette saturation");
+    W.attachReset(document.getElementById("ws-tune-brightness"), "palette brightness");
+    W.attachReset(document.getElementById("ws-tune-contrast"), "palette contrast");
+    W.attachReset(document.getElementById("ws-tune-hue"), "the palette hue shift");
+    W.attachReset(document.getElementById("ws-tune-posterise"), "posterise");
 
     on("ws-preset-pop", "click", () => {
       W.applyPreset("sprite pop");
@@ -787,7 +897,8 @@
     const adjust = VP.reference.state.adjust;
     const set = (id, value) => {
       const node = document.getElementById(id);
-      if (node && document.activeElement !== node) node.value = String(value);
+      if (!node) return;
+      node.value = String(value);
     };
     set("ws-black", Math.round(adjust.black * 100));
     set("ws-white", Math.round(adjust.white * 100));

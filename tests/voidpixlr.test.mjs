@@ -1577,6 +1577,147 @@ check("the browser suite loads a photo over the working cap", () => {
   );
 });
 
+/* --- the sliders and the page that has to keep up ------------------------- */
+
+check("every slider has a reset button", () => {
+  const markup = read("index.html");
+  const workspace = read("js/workspace.js");
+
+  /* Every range input in the app. */
+  const sliders = [...markup.matchAll(/<input type="range" id="([^"]+)"/g)].map(
+    (m) => m[1],
+  );
+  assert(sliders.length >= 12, `only ${sliders.length} sliders found in the markup`);
+
+  /* The workspace sliders are covered by attachReset calls, one per slider. */
+  for (const id of sliders) {
+    if (id === "reference-opacity") continue;
+    assert(
+      workspace.includes(`attachReset(document.getElementById("${id}")`),
+      `the ${id} slider has no reset button`,
+    );
+  }
+
+  /* And the one in the reference strip, which the app wires up. */
+  const app = read("js/app.js");
+  assert(
+    app.includes('attachReset(opacity, "the reference opacity")'),
+    "the reference opacity slider has no reset button",
+  );
+
+  /* The reset target is the slider's own shipped value, so the button and
+     the algorithm's default can never disagree. */
+  assert(
+    workspace.includes("slider.value = slider.defaultValue;"),
+    "the reset button does not restore the slider's shipped value",
+  );
+});
+
+check("the reset button travels the same path as a hand-made change", () => {
+  const workspace = read("js/workspace.js");
+  assert(
+    /dispatchEvent\(new Event\("input"/.test(workspace) &&
+      /dispatchEvent\(new Event\("change"/.test(workspace),
+    "the reset button does not re-dispatch the slider's own events",
+  );
+});
+
+check("the settle bakes the current adjustment before the full pass", () => {
+  /* While a control is moving only the reduced copy is updated, so the
+     full-resolution copy is stale. The settle has to bring it up to date —
+     otherwise the preview snaps back to the previous value a fraction of a
+     second after you stop moving, and the page looks like it never updated. */
+  const reference = read("js/reference.js");
+  const workspace = read("js/workspace.js");
+
+  assert(
+    reference.includes("R.commitAdjust = function commitAdjust("),
+    "there is no commitAdjust — the full copy is never brought up to date",
+  );
+  assert(
+    reference.includes("state.adjustedStale = true;"),
+    "the full copy is not marked stale while a control is moving",
+  );
+  assert(
+    /function settlePreview[\s\S]{0,400}commitAdjust\(\)/.test(workspace),
+    "the settle does not bake the adjustment first",
+  );
+  assert(
+    /function settlePreview[\s\S]{0,600}runPreview\(false\)/.test(workspace),
+    "the settle does not render the full result",
+  );
+  /* And the settle has to redraw the source pane, which is drawn from the
+     full copy — otherwise the photo stays stale until something else
+     redraws it, and the user has to nudge the image to make the page
+     catch up. */
+  assert(
+    /function settlePreview[\s\S]{0,600}W\.draw\(\)/.test(workspace),
+    "the settle does not redraw the source pane",
+  );
+});
+
+check("the tuning palette never compounds", () => {
+  /* Transforming the last result instead of the original made every slider
+     move apply on top of the previous one, so the colours ran away while
+     you dragged and putting the slider back did not restore them. */
+  const palette = read("js/palette.js");
+  assert(
+    palette.includes("stagedSource"),
+    "the staging palette keeps no untransformed source",
+  );
+  assert(
+    /function transformStaged[\s\S]{0,700}const base = state\.stagedSource \|\| state\.staged;/.test(
+      palette,
+    ),
+    "transformStaged does not start from the original extraction",
+  );
+});
+
+check("a preset moves the sliders with it", () => {
+  const workspace = read("js/workspace.js");
+  assert(
+    workspace.includes("W.syncTuneSliders = function syncTuneSliders("),
+    "there is no syncTuneSliders",
+  );
+  assert(
+    /function applyPreset[\s\S]{0,700}syncTuneSliders\(\)/.test(workspace),
+    "a preset changes the state but leaves the sliders showing the old values",
+  );
+});
+
+check("a confirmation does not expire on a timer", () => {
+  /* The expiry made "New" a trap: click it, read the label, look away for
+     a moment, click again — and the second click armed it a second time
+     instead of confirming it, so the canvas never cleared. */
+  const app = read("js/app.js");
+  const arm = app.slice(app.indexOf("function armConfirm("));
+  const body = arm.slice(0, arm.indexOf("\n  }"));
+  assert(
+    !body.includes("setTimeout"),
+    "the confirmation still expires on a timer",
+  );
+  assert(
+    app.includes("function disarmConfirm("),
+    "there is no way to cancel an armed confirmation",
+  );
+  assert(
+    app.includes("watchConfirmations"),
+    "a click elsewhere does not cancel an armed confirmation",
+  );
+});
+
+check("a palette change reaches the workspace preview", () => {
+  /* The swatch grid is only half of a palette change. The live preview in
+     the workspace has to follow it too, or switching the palette in the
+     sidebar leaves the preview showing the previous palette's result —
+     measured, the preview hash did not change at all. */
+  const app = read("js/app.js");
+  assert(
+    /function renderAll[\s\S]{0,600}VP\.workspace\.refresh\(\)/.test(app),
+    "renderAll does not refresh the workspace preview, so a palette change never reaches it",
+  );
+});
+
 /* --- summary -------------------------------------------------------------- */
 
 console.log("");

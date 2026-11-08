@@ -76,10 +76,10 @@ walking up to the umbrella repository. Run it from inside this folder, or point
 ## Testing
 
 ```bash
-node tests/voidpixlr.test.mjs        # 120 logic checks
+node tests/voidpixlr.test.mjs        # 127 logic checks
 
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py          # 71 end-to-end checks in a real Firefox
+python3 tests/browser/e2e.py          # 85 end-to-end checks in a real Firefox
 python3 tests/browser/hostile.py      # 31 hostile-input checks
 ```
 

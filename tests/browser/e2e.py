@@ -371,6 +371,169 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
 
     fx.screenshot(str(shots / "06-converted.png"))
 
+    section("the sliders keep up with the page")
+
+    # Every slider has a reset button, and the reset puts back exactly what
+    # the slider ships with.
+    sliders = fx.execute_script(
+        """
+        const out = [];
+        for (const el of document.querySelectorAll('input[type=range]')) {
+          let button = null;
+          const block = el.closest('.ws-slider');
+          if (block) button = block.querySelector('.btn-reset');
+          else {
+            const label = el.closest('label');
+            if (label) button = label.nextElementSibling;
+          }
+          out.push({
+            id: el.id,
+            defaultValue: el.defaultValue,
+            hasReset: !!(button && button.classList.contains('btn-reset')),
+          });
+        }
+        return out;
+        """
+    )
+    without_reset = [s["id"] for s in sliders if not s["hasReset"]]
+    check(
+        "every slider has a reset button",
+        not without_reset,
+        f"no reset on: {', '.join(without_reset)}",
+    )
+
+    # The preview must still be right a moment after a control stops moving,
+    # even when the control never sends a `change` event. The settle has to
+    # bake the current adjustment into the full-resolution copy itself.
+    preview_hash = """
+      const c = document.getElementById('preview-pane');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i]) >>> 0;
+      return h;
+    """
+    source_hash = """
+      const s = document.getElementById('source-pane');
+      const d = s.getContext('2d').getImageData(0, 0, s.width, s.height).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 397) h = (h * 31 + d[i]) >>> 0;
+      return h;
+    """
+    before_preview = fx.execute_script(preview_hash)
+    before_source = fx.execute_script(source_hash)
+
+    # `input` only: this is what a control that never commits looks like.
+    fx.execute_script(
+        """
+        const s = document.getElementById('ws-brightness');
+        s.value = 165;
+        s.dispatchEvent(new Event('input', {bubbles: true}));
+        """
+    )
+    time.sleep(0.05)
+    during = fx.execute_script(preview_hash)
+    time.sleep(0.5)
+    settled = fx.execute_script(preview_hash)
+    settled_source = fx.execute_script(source_hash)
+
+    check(
+        "the preview follows the control while it moves",
+        during != before_preview,
+        "the preview did not change at all",
+    )
+    check(
+        "the preview is still right when the control settles",
+        settled == during,
+        "the preview reverted to the previous value when the control settled",
+    )
+    check(
+        "the photo in the pane updates when the control settles",
+        settled_source != before_source,
+        "the source pane still shows the old photo",
+    )
+
+    # The reset button puts the slider, the state and the preview back.
+    fx.execute_script(
+        """
+        const block = document.getElementById('ws-brightness').closest('.ws-slider');
+        block.querySelector('.btn-reset').click();
+        """
+    )
+    time.sleep(0.5)
+    reset_value = fx.execute_script("return document.getElementById('ws-brightness').value;")
+    reset_state = fx.execute_script("return VP.reference.state.adjust.brightness;")
+    reset_preview = fx.execute_script(preview_hash)
+    check(
+        "the reset button puts the slider back",
+        reset_value == "100",
+        f"the slider reads {reset_value}",
+    )
+    check(
+        "the reset button puts the state back",
+        abs(reset_state - 1) < 0.001,
+        f"brightness is {reset_state}",
+    )
+    check(
+        "the reset button puts the preview back",
+        reset_preview == before_preview,
+        "the preview did not return to where it started",
+    )
+
+    # The tuning palette must not compound: moving a slider and putting it
+    # back has to restore exactly the colours that were there before.
+    tune_hash = "return VP.palette.state.staged.slice().join(',');"
+    tune_value = fx.execute_script(
+        "return document.getElementById('ws-tune-saturation').value;"
+    )
+    original_tune = fx.execute_script(tune_hash)
+    fx.execute_script(
+        """
+        const s = document.getElementById('ws-tune-saturation');
+        s.value = 160;
+        s.dispatchEvent(new Event('input', {bubbles: true}));
+        s.dispatchEvent(new Event('change', {bubbles: true}));
+        """
+    )
+    time.sleep(0.4)
+    tuned_palette = fx.execute_script(tune_hash)
+    fx.execute_script(
+        """
+        const s = document.getElementById('ws-tune-saturation');
+        s.value = %s;
+        s.dispatchEvent(new Event('input', {bubbles: true}));
+        s.dispatchEvent(new Event('change', {bubbles: true}));
+        """
+        % tune_value
+    )
+    time.sleep(0.4)
+    restored_tune = fx.execute_script(tune_hash)
+    check(
+        "the tuning palette does not compound",
+        restored_tune == original_tune,
+        "putting the slider back did not restore the colours",
+    )
+    check(
+        "the tuning palette does change when it is moved",
+        tuned_palette != original_tune,
+        "moving the slider changed nothing",
+    )
+
+    # A preset replaces the whole transform, so the sliders have to follow it.
+    fx.execute_script("VP.workspace.applyPreset('sprite pop');")
+    time.sleep(0.4)
+    preset = fx.execute_script(
+        """
+        const tune = VP.workspace.state.tune;
+        const node = document.getElementById('ws-tune-contrast');
+        return { state: tune.contrast, slider: parseFloat(node.value) };
+        """
+    )
+    check(
+        "a preset moves the sliders with it",
+        abs(preset["state"] - preset["slider"]) < 0.5,
+        f"the state says {preset['state']} and the slider says {preset['slider']}",
+    )
+
     section("undo the conversion")
     fx.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'z', ctrlKey: true}));")
     time.sleep(0.3)
@@ -687,6 +850,53 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
     )
     check("the second click clears the canvas", cleared == 0, f"{cleared} cells")
 
+    # The confirmation must not expire. It used to time out after two
+    # seconds, so click it, read the label, look away for a moment, click
+    # again — and the second click armed it a second time instead of
+    # confirming it. The canvas never cleared and the button looked broken.
+    fx.execute_script(
+        "VP.canvas.paintSymmetric(1, 1, 3); VP.canvas.composite();"
+    )
+    time.sleep(0.3)
+    fx.click("#new-canvas")
+    time.sleep(2.5)
+    fx.click("#new-canvas")
+    time.sleep(0.4)
+    cleared_slow = fx.execute_script(
+        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+    )
+    check(
+        "New still clears when the two clicks are far apart",
+        cleared_slow == 0,
+        f"{cleared_slow} cells left",
+    )
+
+    # And a click somewhere else cancels the armed confirmation.
+    fx.execute_script(
+        "VP.canvas.paintSymmetric(1, 1, 3); VP.canvas.composite();"
+    )
+    time.sleep(0.3)
+    fx.click("#new-canvas")
+    time.sleep(0.2)
+    fx.execute_script("document.getElementById('art-canvas').click();")
+    time.sleep(0.2)
+    label_cancelled = fx.execute_script(
+        "return document.getElementById('new-canvas').textContent;"
+    )
+    check(
+        "a click elsewhere cancels the confirmation",
+        label_cancelled == "New",
+        f"the button reads '{label_cancelled}'",
+    )
+    still_painted = fx.execute_script(
+        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+    )
+    check(
+        "a cancelled confirmation does not clear anything",
+        still_painted == 1,
+        f"{still_painted} cells",
+    )
+
     section("reordering a swatch")
     fx.execute_script("VP.palette.switchTo('Void Palette');")
     time.sleep(0.2)
@@ -774,6 +984,46 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
         """
     )
     check("16x is still allowed on a 256x256 canvas", allowed[0] is False, str(allowed))
+
+    section("a palette change reaches the workspace preview")
+
+    # The swatch grid is only half of a palette change. The live preview in
+    # the workspace has to follow it too, or switching the palette in the
+    # sidebar leaves the preview showing the previous palette's result.
+    # Measured before the fix: the preview hash did not change at all.
+    #
+    # The suite has wiped the storage by this point, so there is nothing to
+    # preview until a photo is loaded again.
+    fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
+    fx.execute_script(
+        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+    )
+    time.sleep(1.5)
+    fx.execute_script("VP.workspace.open();")
+    time.sleep(0.8)
+
+    preview_of_palette = """
+        const c = document.getElementById('preview-pane');
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        let h = 0;
+        for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i]) >>> 0;
+        return h;
+    """
+    before_palette = fx.execute_script(preview_of_palette)
+    fx.execute_script(
+        """
+        const select = document.getElementById('palette-select');
+        select.value = 'Void Expanded';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        """
+    )
+    time.sleep(0.8)
+    after_palette = fx.execute_script(preview_of_palette)
+    check(
+        "a palette change reaches the workspace preview",
+        after_palette != before_palette,
+        "the preview did not change when the palette did",
+    )
 
     section("the limits on the load page")
     note = fx.execute_script("return document.getElementById('ws-load-note').textContent;")

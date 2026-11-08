@@ -622,6 +622,32 @@ input[type="color"]::-moz-color-swatch {
   margin-bottom: 6px;
 }
 
+/* The range and its reset button share one line. */
+.ws-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-slider-row input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A small, quiet button: it undoes one value, it is not a command. */
+.btn-reset {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.btn-reset:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
 .ws-slider label {
   display: flex;
   justify-content: space-between;
