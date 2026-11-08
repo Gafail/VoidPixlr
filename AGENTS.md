@@ -247,7 +247,7 @@ from what nginx will send.
   infrastructure for the container. Never copy or symlink this folder into
   another repository; a duplicate copy is a second thing to forget to update,
   and this project has already drifted once because of it.
-- Current deployed version: **v2.0 r12, live at http://192.168.100.100/**.
+- Current deployed version: **v2.0 r13, live at http://192.168.100.100/**.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.
