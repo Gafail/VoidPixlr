@@ -695,41 +695,47 @@
 
   /* --- grid sampling ------------------------------------------------------ */
 
-  /* Samples the region under the grid overlay into `size` x `size` cells.
+  /* Samples the region under the grid overlay into `width` x `height` cells.
 
      `geometry` is the inverse of the screen transform:
        originX, originY  top-left of the overlay, in screen pixels
-       cellPx            on-screen size of one cell
+       cellPx            on-screen width of one cell
+       cellPxY           on-screen height of one cell; defaults to cellPx
        zoom              screen pixels per source pixel
        panX, panY        screen position of the source's top-left pixel
 
      `method` is "average" (a true area average) or "nearest" (one sample at
-     the cell centre). */
-  Q.sampleGrid = function sampleGrid(source, size, geometry, method) {
-    const cells = new Float32Array(size * size * 3);
-    const alpha = new Float32Array(size * size);
+     the cell centre).
+
+     The grid is not necessarily square, so the cell's width and height are
+     separate numbers: a reduced-quality pass halves both axes, and a
+     rectangular grid halves them by different amounts. */
+  Q.sampleGrid = function sampleGrid(source, width, height, geometry, method) {
+    const cells = new Float32Array(width * height * 3);
+    const alpha = new Float32Array(width * height);
     const data = source.data;
-    const width = source.width;
-    const height = source.height;
+    const sourceWidth = source.width;
+    const sourceHeight = source.height;
     const { originX, originY, cellPx, zoom, panX, panY } = geometry;
+    const cellPxY = geometry.cellPxY === undefined ? cellPx : geometry.cellPxY;
     const nearest = method === "nearest";
 
-    for (let row = 0; row < size; row += 1) {
-      for (let col = 0; col < size; col += 1) {
-        const cell = row * size + col;
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        const cell = row * width + col;
 
         const sx0 = originX + col * cellPx;
-        const sy0 = originY + row * cellPx;
+        const sy0 = originY + row * cellPxY;
         const x0 = (sx0 - panX) / zoom;
         const y0 = (sy0 - panY) / zoom;
         const x1 = (sx0 + cellPx - panX) / zoom;
-        const y1 = (sy0 + cellPx - panY) / zoom;
+        const y1 = (sy0 + cellPxY - panY) / zoom;
 
         if (nearest) {
           const ix = Math.floor((sx0 + cellPx / 2 - panX) / zoom);
-          const iy = Math.floor((sy0 + cellPx / 2 - panY) / zoom);
-          if (ix < 0 || iy < 0 || ix >= width || iy >= height) continue;
-          const index = (iy * width + ix) * 4;
+          const iy = Math.floor((sy0 + cellPxY / 2 - panY) / zoom);
+          if (ix < 0 || iy < 0 || ix >= sourceWidth || iy >= sourceHeight) continue;
+          const index = (iy * sourceWidth + ix) * 4;
           const a = data[index + 3] / 255;
           if (a <= 0) continue;
           cells[cell * 3] = data[index];
@@ -742,9 +748,9 @@
         /* Area average. Every source pixel falls in exactly one cell, so the
            whole pass touches the image once. */
         const px0 = Math.max(0, Math.floor(x0));
-        const px1 = Math.min(width, Math.ceil(x1));
+        const px1 = Math.min(sourceWidth, Math.ceil(x1));
         const py0 = Math.max(0, Math.floor(y0));
-        const py1 = Math.min(height, Math.ceil(y1));
+        const py1 = Math.min(sourceHeight, Math.ceil(y1));
 
         let rSum = 0, gSum = 0, bSum = 0, weight = 0, coverage = 0;
 
@@ -756,7 +762,7 @@
             if (overlapX <= 0) continue;
             const cover = overlapX * overlapY;
             coverage += cover;
-            const index = (py * width + px) * 4;
+            const index = (py * sourceWidth + px) * 4;
             const a = data[index + 3] / 255;
             if (a <= 0) continue;
             const w = cover * a;
@@ -779,14 +785,15 @@
       }
     }
 
-    return { cells, alpha, size };
+    return { cells, alpha, width, height };
   };
 
   /* The RGB triplets of the sampled cells, as a flat array — the palette
      generator's input. Empty cells are dropped. */
   Q.sampleToPixels = function sampleToPixels(sample) {
     const out = [];
-    for (let i = 0; i < sample.size * sample.size; i += 1) {
+    const total = sample.width * sample.height;
+    for (let i = 0; i < total; i += 1) {
       if (sample.alpha[i] <= 0) continue;
       out.push(
         sample.cells[i * 3],
@@ -801,9 +808,10 @@
 
   /* Flat: each cell takes the nearest palette colour. */
   Q.matchFlat = function matchFlat(sample, paletteRgb) {
-    const size = sample.size;
-    const out = new Int8Array(size * size);
-    for (let i = 0; i < size * size; i += 1) {
+    const width = sample.width;
+    const height = sample.height;
+    const out = new Int8Array(width * height);
+    for (let i = 0; i < width * height; i += 1) {
       if (sample.alpha[i] <= 0) {
         out[i] = -1;
         continue;
@@ -821,14 +829,15 @@
   /* Bayer 8x8: an ordered threshold offset is added before matching, so a
      gradient turns into texture instead of banding. */
   Q.matchBayer = function matchBayer(sample, paletteRgb) {
-    const size = sample.size;
-    const out = new Int8Array(size * size);
+    const width = sample.width;
+    const height = sample.height;
+    const out = new Int8Array(width * height);
     const spacing = Q.averageSpacing(paletteRgb);
     const strength = spacing / 8;
 
-    for (let row = 0; row < size; row += 1) {
-      for (let col = 0; col < size; col += 1) {
-        const cell = row * size + col;
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        const cell = row * width + col;
         if (sample.alpha[cell] <= 0) {
           out[cell] = -1;
           continue;
@@ -851,15 +860,16 @@
      neighbours. The scan is serpentine, so the directional artefacts of a
      naive left-to-right pass do not show. */
   Q.matchFloyd = function matchFloyd(sample, paletteRgb) {
-    const size = sample.size;
-    const out = new Int8Array(size * size);
+    const width = sample.width;
+    const height = sample.height;
+    const out = new Int8Array(width * height);
     const work = new Float32Array(sample.cells);
 
-    for (let row = 0; row < size; row += 1) {
+    for (let row = 0; row < height; row += 1) {
       const leftToRight = row % 2 === 0;
-      for (let step = 0; step < size; step += 1) {
-        const col = leftToRight ? step : size - 1 - step;
-        const cell = row * size + col;
+      for (let step = 0; step < width; step += 1) {
+        const col = leftToRight ? step : width - 1 - step;
+        const cell = row * width + col;
         if (sample.alpha[cell] <= 0) {
           out[cell] = -1;
           continue;
@@ -877,8 +887,8 @@
 
         const right = leftToRight ? 1 : -1;
         const push = (target, weight) => {
-          if (target < 0 || target >= size) return;
-          const t = row * size + target;
+          if (target < 0 || target >= width) return;
+          const t = row * width + target;
           if (sample.alpha[t] <= 0) return;
           work[t * 3] = clamp(work[t * 3] + errR * weight, 0, 255);
           work[t * 3 + 1] = clamp(work[t * 3 + 1] + errG * weight, 0, 255);
@@ -887,8 +897,8 @@
 
         push(col + right, 7 / 16);
         push(col - right, 3 / 16);
-        if (row + 1 < size) {
-          const below = (row + 1) * size;
+        if (row + 1 < height) {
+          const below = (row + 1) * width;
           const t = below + col;
           if (sample.alpha[t] > 0) {
             work[t * 3] = clamp(work[t * 3] + errR * (5 / 16), 0, 255);
@@ -896,7 +906,7 @@
             work[t * 3 + 2] = clamp(work[t * 3 + 2] + errB * (5 / 16), 0, 255);
           }
           const diag = below + col + right;
-          if (diag >= 0 && diag < size * size && sample.alpha[diag] > 0) {
+          if (diag >= 0 && diag < width * height && sample.alpha[diag] > 0) {
             work[diag * 3] = clamp(work[diag * 3] + errR * (1 / 16), 0, 255);
             work[diag * 3 + 1] = clamp(work[diag * 3 + 1] + errG * (1 / 16), 0, 255);
             work[diag * 3 + 2] = clamp(work[diag * 3 + 2] + errB * (1 / 16), 0, 255);
@@ -911,15 +921,16 @@
   /* Clustered: k-means over the cell averages, then each cluster maps to the
      nearest palette colour. Few coherent colours, flat and hand-made. */
   Q.matchClustered = function matchClustered(sample, paletteRgb) {
-    const size = sample.size;
+    const width = sample.width;
+    const height = sample.height;
     /* -1 is "empty". A cell that carries no pixels must stay empty, so the
        result starts empty and only the cells that were sampled are filled. */
-    const out = new Int8Array(size * size).fill(-1);
+    const out = new Int8Array(width * height).fill(-1);
     const count = paletteRgb.length / 3;
 
     const pixels = [];
     const cellIndex = [];
-    for (let i = 0; i < size * size; i += 1) {
+    for (let i = 0; i < width * height; i += 1) {
       if (sample.alpha[i] <= 0) continue;
       pixels.push(sample.cells[i * 3], sample.cells[i * 3 + 1], sample.cells[i * 3 + 2]);
       cellIndex.push(i);
@@ -1013,8 +1024,8 @@
     return out;
   };
 
-  Q.deserialiseGrid = function deserialiseGrid(text, size) {
-    const grid = new Int8Array(size * size);
+  Q.deserialiseGrid = function deserialiseGrid(text, length) {
+    const grid = new Int8Array(length);
     if (typeof text !== "string") return grid;
     for (let i = 0; i < grid.length && i < text.length; i += 1) {
       const code = text.charCodeAt(i);
@@ -1025,12 +1036,16 @@
 
   /* --- project files -------------------------------------------------------- */
 
-  const ALLOWED_SIZES = [16, 32, 64, 128, 256];
+  /* The canvas sizes a project may have. The grid is a width x height pair,
+     and every one of these is allowed in either direction — a 64 x 16 canvas
+     is as valid as a 64 x 64 one. */
+  const ALLOWED_SIZES = [16, 32, 64, 128, 256, 512];
 
   Q.ALLOWED_SIZES = ALLOWED_SIZES;
 
   /* Validates a parsed project file. A file with no `format` key is a v1
-     file: same shape, older palette. */
+     file: same shape, older palette. A v2 file has a single `size` and is
+     square; a v3 file has a `width` and a `height`. */
   Q.validateProject = function validateProject(data) {
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       return { ok: false, error: "not a project file" };
@@ -1039,11 +1054,15 @@
     const isV2 = data.format === "voidpixlr";
     const version = isV2 ? data.version : 1;
 
-    if (isV2 && data.version !== 2) {
+    if (isV2 && version !== 2 && version !== 3) {
       return { ok: false, error: "unsupported version" };
     }
 
-    if (!ALLOWED_SIZES.includes(data.size)) {
+    /* A v1 or v2 file has one `size`; a v3 file has a width and a height. */
+    const width = data.width === undefined ? data.size : data.width;
+    const height = data.height === undefined ? data.size : data.height;
+
+    if (!ALLOWED_SIZES.includes(width) || !ALLOWED_SIZES.includes(height)) {
       return { ok: false, error: "bad size" };
     }
 
@@ -1057,11 +1076,11 @@
       if (!isHex(hex)) return { ok: false, error: "bad palette colour" };
     }
 
-    if (!Array.isArray(data.pixels) || data.pixels.length !== data.size) {
+    if (!Array.isArray(data.pixels) || data.pixels.length !== height) {
       return { ok: false, error: "bad pixel grid" };
     }
     for (const row of data.pixels) {
-      if (!Array.isArray(row) || row.length !== data.size) {
+      if (!Array.isArray(row) || row.length !== width) {
         return { ok: false, error: "bad pixel row" };
       }
       for (const value of row) {
@@ -1076,34 +1095,39 @@
       ok: true,
       version,
       isV2,
-      size: data.size,
+      width,
+      height,
       palette: data.palette.map((hex) => Q.normaliseHex(hex)),
     };
   };
 
   /* Builds the export payload. The `format` and `version` keys are what make
      v1 files readable: a file without them is treated as v1. */
-  Q.buildProject = function buildProject(size, palette, grid) {
+  Q.buildProject = function buildProject(width, height, palette, grid) {
     const pixels = [];
-    for (let row = 0; row < size; row += 1) {
+    for (let row = 0; row < height; row += 1) {
       const line = [];
-      for (let col = 0; col < size; col += 1) line.push(grid[row * size + col]);
+      for (let col = 0; col < width; col += 1) line.push(grid[row * width + col]);
       pixels.push(line);
     }
     return {
       format: "voidpixlr",
-      version: 2,
-      size,
+      version: 3,
+      width,
+      height,
       palette: palette.slice(),
       pixels,
     };
   };
 
   /* A v1-shaped payload, for the import compatibility test. */
-  Q.buildLegacyProject = function buildLegacyProject(size, palette, grid) {
-    const project = Q.buildProject(size, palette, grid);
+  Q.buildLegacyProject = function buildLegacyProject(width, height, palette, grid) {
+    const project = Q.buildProject(width, height, palette, grid);
     delete project.format;
     delete project.version;
+    delete project.width;
+    delete project.height;
+    project.size = width;
     return project;
   };
 })(

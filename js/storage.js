@@ -8,7 +8,7 @@
 
    Three localStorage keys, exactly as specified:
 
-       voidpixlr:canvas:v2    { size, palette, grid }
+       voidpixlr:canvas:v2    { width, height, palette, grid }
        voidpixlr:palettes:v2  [ { name, colours } ]
        voidpixlr:prefs:v2     { zoom, gridVisible, symmetry, activePalette, ... }
 
@@ -77,11 +77,15 @@
 
   /* --- the canvas ---------------------------------------------------------- */
 
-  S.saveCanvas = function saveCanvas(size, palette, grid) {
+  /* The saved canvas carries its width and its height. An older save — one
+     written before the canvas could be rectangular — has a single `size` and
+     is read as a square. */
+  S.saveCanvas = function saveCanvas(width, height, palette, grid) {
     return writeRaw(
       KEYS.canvas,
       JSON.stringify({
-        size,
+        width,
+        height,
         palette: palette.slice(),
         grid: Q.serialiseGrid(grid),
       })
@@ -93,12 +97,16 @@
     if (!raw) return null;
     try {
       const data = JSON.parse(raw);
-      if (!data || !Q.ALLOWED_SIZES.includes(data.size)) return null;
+      if (!data) return null;
+      const width = data.width === undefined ? data.size : data.width;
+      const height = data.height === undefined ? data.size : data.height;
+      if (!Q.ALLOWED_SIZES.includes(width)) return null;
+      if (!Q.ALLOWED_SIZES.includes(height)) return null;
       if (!Array.isArray(data.palette) || !data.palette.length) return null;
       const palette = data.palette.map((hex) => Q.normaliseHex(hex)).filter(Boolean);
       if (!palette.length) return null;
-      const grid = Q.deserialiseGrid(String(data.grid || ""), data.size);
-      return { size: data.size, palette, grid };
+      const grid = Q.deserialiseGrid(String(data.grid || ""), width * height);
+      return { width, height, palette, grid };
     } catch (error) {
       /* A corrupt autosave must never brick the tool. */
       return null;

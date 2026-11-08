@@ -4,13 +4,18 @@
    The rendering architecture: a layered buffer model rather than thousands of
    DOM nodes.
 
-       artBuffer   offscreen canvas, size x size, 1 art pixel = 1 buffer pixel
-       refBuffer   offscreen canvas, size x size, the reference underlay
-       display     the <canvas> the user sees, size * scale, DPR-aware
+       artBuffer     offscreen canvas, width x height, 1 art pixel = 1 buffer pixel
+       previewBuffer offscreen canvas, width x height, the live conversion
+       refBuffer     offscreen canvas, width x height, the reference underlay
+       display       the <canvas> the user sees, size * scale, DPR-aware
 
-   A frame is composited in three steps: the reference (under), the art, the
-   grid lines — two drawImage calls and a few hundred line strokes, which is
-   sub-millisecond at any size including 256x256.
+   A frame is composited in four steps: the reference (under), the art, the
+   live conversion (over the art), the grid lines — a few drawImage calls and
+   a few hundred line strokes, which is sub-millisecond at any size including
+   256x256.
+
+   The canvas is not square. It has a width and a height, and every buffer,
+   every grid index and every export follows both of them.
 
    This file also owns the pointer handling: drag-paint with Bresenham
    interpolation, the explicit eraser, right-drag erase, and symmetry.
@@ -28,13 +33,16 @@
   const SYMMETRY = ["off", "X", "Y", "X+Y"];
 
   const state = {
-    size: 16,
+    width: 16,
+    height: 16,
     grid: new Int8Array(16 * 16).fill(-1),
     scale: 16,
     gridVisible: true,
     symmetry: 0,
     artBuffer: null,
     artContext: null,
+    previewBuffer: null,
+    previewContext: null,
     refBuffer: null,
     refContext: null,
     display: null,
@@ -58,10 +66,10 @@
     enumerable: true,
   });
 
-  function makeCanvas(size) {
+  function makeCanvas(width, height) {
     const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = width;
+    canvas.height = height;
     return canvas;
   }
 
@@ -70,9 +78,11 @@
   C.init = function init(displayElement) {
     state.display = displayElement;
     state.context = displayElement.getContext("2d");
-    state.artBuffer = makeCanvas(state.size);
+    state.artBuffer = makeCanvas(state.width, state.height);
     state.artContext = state.artBuffer.getContext("2d");
-    state.refBuffer = makeCanvas(state.size);
+    state.previewBuffer = makeCanvas(state.width, state.height);
+    state.previewContext = state.previewBuffer.getContext("2d");
+    state.refBuffer = makeCanvas(state.width, state.height);
     state.refContext = state.refBuffer.getContext("2d");
     C.rebuildArt();
     C.resizeDisplay();
@@ -88,36 +98,40 @@
   };
 
   C.clearGrid = function clearGrid() {
-    state.grid = new Int8Array(state.size * state.size).fill(-1);
+    state.grid = new Int8Array(state.width * state.height).fill(-1);
     C.rebuildArt();
     C.composite();
   };
 
   /* Resizes the canvas, keeping the art centre-anchored: the old grid is
      centred in the new one, cells outside are cropped, new cells are empty. */
-  C.resize = function resize(newSize) {
-    const oldSize = state.size;
+  C.resize = function resize(newWidth, newHeight) {
+    const oldWidth = state.width;
+    const oldHeight = state.height;
     const oldGrid = state.grid;
-    const grid = new Int8Array(newSize * newSize).fill(-1);
-    const offsetX = Math.floor((newSize - oldSize) / 2);
-    const offsetY = Math.floor((newSize - oldSize) / 2);
+    const grid = new Int8Array(newWidth * newHeight).fill(-1);
+    const offsetX = Math.floor((newWidth - oldWidth) / 2);
+    const offsetY = Math.floor((newHeight - oldHeight) / 2);
 
-    for (let row = 0; row < oldSize; row += 1) {
+    for (let row = 0; row < oldHeight; row += 1) {
       const targetRow = row + offsetY;
-      if (targetRow < 0 || targetRow >= newSize) continue;
-      for (let col = 0; col < oldSize; col += 1) {
+      if (targetRow < 0 || targetRow >= newHeight) continue;
+      for (let col = 0; col < oldWidth; col += 1) {
         const targetCol = col + offsetX;
-        if (targetCol < 0 || targetCol >= newSize) continue;
-        grid[targetRow * newSize + targetCol] = oldGrid[row * oldSize + col];
+        if (targetCol < 0 || targetCol >= newWidth) continue;
+        grid[targetRow * newWidth + targetCol] = oldGrid[row * oldWidth + col];
       }
     }
 
-    state.size = newSize;
+    state.width = newWidth;
+    state.height = newHeight;
     state.grid = grid;
 
-    state.artBuffer = makeCanvas(newSize);
+    state.artBuffer = makeCanvas(newWidth, newHeight);
     state.artContext = state.artBuffer.getContext("2d");
-    state.refBuffer = makeCanvas(newSize);
+    state.previewBuffer = makeCanvas(newWidth, newHeight);
+    state.previewContext = state.previewBuffer.getContext("2d");
+    state.refBuffer = makeCanvas(newWidth, newHeight);
     state.refContext = state.refBuffer.getContext("2d");
 
     C.rebuildArt();
@@ -127,32 +141,86 @@
 
   /* --- painting ------------------------------------------------------------ */
 
+  /* Paints a grid into a buffer: one cell per grid index, the row stride is
+     the grid's width. */
+  function paintGridInto(context, grid, width, height, palette) {
+    context.clearRect(0, 0, width, height);
+    context.imageSmoothingEnabled = false;
+
+    for (let i = 0; i < grid.length; i += 1) {
+      const index = grid[i];
+      if (index < 0) continue;
+      const hex = palette[index];
+      if (!hex) continue;
+      context.fillStyle = hex;
+      context.fillRect(i % width, Math.floor(i / width), 1, 1);
+    }
+  }
+
   /* Repaints the whole art buffer from the grid. One pass, O(n); it happens
      on discrete events only, never per pointer move. */
   C.rebuildArt = function rebuildArt() {
     const context = state.artContext;
     if (!context) return;
-    const size = state.size;
-    const palette = VP.palette.colours();
+    paintGridInto(
+      context,
+      state.grid,
+      state.width,
+      state.height,
+      VP.palette.colours()
+    );
+  };
 
-    context.clearRect(0, 0, size, size);
-    context.imageSmoothingEnabled = false;
+  /* --- the live conversion preview ----------------------------------------- */
 
-    for (let i = 0; i < state.grid.length; i += 1) {
-      const index = state.grid[i];
-      if (index < 0) continue;
-      const hex = palette[index];
-      if (!hex) continue;
-      context.fillStyle = hex;
-      context.fillRect(i % size, Math.floor(i / size), 1, 1);
+  /* The workspace's live conversion, drawn over the art in the same canvas.
+     It is a layer, not a second canvas: the app has one art canvas, and the
+     Image mode shows it beside the photo.
+
+     The layer may be smaller than the canvas — the reduced-quality tier
+     samples fewer cells — and the composite stretches it back up, so the
+     draft reads as blocks until the full pass lands. */
+  C.setPreview = function setPreview(grid, gridWidth, gridHeight) {
+    if (!state.previewContext) return;
+    if (!grid) {
+      C.clearPreview();
+      return;
     }
+    const width = gridWidth || state.width;
+    const height = gridHeight || state.height;
+    if (
+      state.previewBuffer.width !== width ||
+      state.previewBuffer.height !== height
+    ) {
+      state.previewBuffer = makeCanvas(width, height);
+      state.previewContext = state.previewBuffer.getContext("2d");
+    }
+    paintGridInto(
+      state.previewContext,
+      grid,
+      width,
+      height,
+      VP.palette.colours()
+    );
+    C.composite();
+  };
+
+  C.clearPreview = function clearPreview() {
+    if (!state.previewContext) return;
+    state.previewContext.clearRect(0, 0, state.width, state.height);
+    C.composite();
+  };
+
+  C.hasPreview = function hasPreview() {
+    return !!state.previewContext;
   };
 
   /* Writes one cell into the art buffer. */
   C.paintCell = function paintCell(col, row, value) {
-    const size = state.size;
-    if (col < 0 || row < 0 || col >= size || row >= size) return false;
-    const index = row * size + col;
+    const width = state.width;
+    const height = state.height;
+    if (col < 0 || row < 0 || col >= width || row >= height) return false;
+    const index = row * width + col;
     /* A grid that does not match the canvas size would otherwise be written
        out of bounds, which a typed array swallows silently. */
     if (index >= state.grid.length) return false;
@@ -174,17 +242,18 @@
   /* Applies symmetry to one cell: the cell itself, plus its mirror images.
      The centre cell of an odd-sized canvas is painted once, not four times. */
   C.paintSymmetric = function paintSymmetric(col, row, value) {
-    const size = state.size;
+    const width = state.width;
+    const height = state.height;
     const cells = [[col, row]];
-    if (state.symmetry === 1 || state.symmetry === 3) cells.push([size - 1 - col, row]);
-    if (state.symmetry === 2 || state.symmetry === 3) cells.push([col, size - 1 - row]);
-    if (state.symmetry === 3) cells.push([size - 1 - col, size - 1 - row]);
+    if (state.symmetry === 1 || state.symmetry === 3) cells.push([width - 1 - col, row]);
+    if (state.symmetry === 2 || state.symmetry === 3) cells.push([col, height - 1 - row]);
+    if (state.symmetry === 3) cells.push([width - 1 - col, height - 1 - row]);
 
     let changed = false;
     const seen = new Set();
     for (const [x, y] of cells) {
-      if (x < 0 || y < 0 || x >= size || y >= size) continue;
-      const key = y * size + x;
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
+      const key = y * width + x;
       if (seen.has(key)) continue;
       seen.add(key);
       if (C.paintCell(x, y, value)) changed = true;
@@ -204,40 +273,99 @@
   C.resizeDisplay = function resizeDisplay() {
     const display = state.display;
     if (!display) return;
-    const css = state.size * state.scale;
+    const cssWidth = state.width * state.scale;
+    const cssHeight = state.height * state.scale;
     const dpr = root.devicePixelRatio || 1;
-    const backing = Math.min(MAX_DISPLAY, Math.max(1, Math.round(css * dpr)));
+    /* One ratio for both axes, so the art never comes out stretched. The
+       cap is on the larger axis, which is the one that would blow the
+       backing store up. */
+    const ratio = Math.min(
+      dpr,
+      MAX_DISPLAY / cssWidth,
+      MAX_DISPLAY / cssHeight
+    );
+    const backing = Math.max(1, Math.round(cssWidth * ratio));
 
-    display.style.width = css + "px";
-    display.style.height = css + "px";
+    display.style.width = cssWidth + "px";
+    display.style.height = cssHeight + "px";
     display.width = backing;
-    display.height = backing;
+    display.height = Math.max(1, Math.round(cssHeight * ratio));
 
     /* Device pixels per CSS pixel. Normally the device pixel ratio; lower
        when the cap has been hit. */
-    state.ratio = backing / css;
+    state.ratio = backing / cssWidth;
 
     C.composite();
   };
 
   C.setScale = function setScale(scale) {
-    state.scale = scale;
+    state.scale = clampScale(scale);
     C.resizeDisplay();
+    /* The readout and the slider are two views of this number, and they
+       must not be able to drift from it: the scale is also set by a resize
+       and by a layout change, neither of which goes through the app's own
+       zoom control. */
+    if (C.hooks.scale) C.hooks.scale();
   };
+
+  /* The app fills this in: it tells the canvas's own controls what the
+     scale is now. */
+  C.hooks = { scale: null };
 
   /* The zoom steps. The scale is always one of these, so the readout, the
      zoom buttons and what is actually on screen always agree. */
-  const SCALES = [4, 8, 16, 32];
+  const SCALES = [1, 2, 4, 8, 16, 32, 64];
   C.SCALES = SCALES;
+
+  /* The smallest and largest zoom the canvas takes. */
+  const MIN_SCALE = 1;
+  const MAX_SCALE = 64;
+
+  function clampScale(scale) {
+    const value = Math.round(Number(scale));
+    if (!Number.isFinite(value)) return 16;
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+  }
+
+  /* The zoom slider is logarithmic: the top of the range is where the
+     detail is, and a linear slider would spend most of its travel on the
+     two or three zoom levels nobody uses. Each step of the ladder is the
+     same distance on the slider. */
+  C.scaleFromSlider = function scaleFromSlider(value) {
+    const t = Math.min(1, Math.max(0, value / 100));
+    return clampScale(
+      Math.exp(Math.log(MIN_SCALE) + t * (Math.log(MAX_SCALE) - Math.log(MIN_SCALE)))
+    );
+  };
+
+  C.sliderFromScale = function sliderFromScale(scale) {
+    const value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+    const t =
+      (Math.log(value) - Math.log(MIN_SCALE)) /
+      (Math.log(MAX_SCALE) - Math.log(MIN_SCALE));
+    return Math.round(t * 100);
+  };
+
+  /* The room the canvas has to sit in. The region is the pane it lives in. */
+  function availableSpace() {
+    const region = document.getElementById("canvas-region");
+    if (!region) return { width: 640, height: 640 };
+    return {
+      width: Math.max(32, region.clientWidth - 32),
+      height: Math.max(32, region.clientHeight - 32),
+    };
+  }
 
   /* The largest step at which the whole canvas still fits the pane. */
   C.fitScale = function fitScale() {
-    const region = document.getElementById("canvas-region");
-    const available = region
-      ? Math.min(region.clientWidth - 32, region.clientHeight - 32)
-      : 640;
+    const room = availableSpace();
     for (let i = SCALES.length - 1; i >= 0; i -= 1) {
-      if (SCALES[i] * state.size <= available) return SCALES[i];
+      if (
+        SCALES[i] * state.width <= room.width &&
+        SCALES[i] * state.height <= room.height
+      ) {
+        return SCALES[i];
+      }
     }
     return SCALES[0];
   };
@@ -249,11 +377,13 @@
      one — a canvas 4096 CSS pixels across, three times the width of the
      pane it was supposed to sit in. */
   C.scaleForSize = function scaleForSize() {
-    const region = document.getElementById("canvas-region");
-    const available = region
-      ? Math.min(region.clientWidth - 32, region.clientHeight - 32)
-      : 640;
-    if (state.scale * state.size <= available) return state.scale;
+    const room = availableSpace();
+    if (
+      state.scale * state.width <= room.width &&
+      state.scale * state.height <= room.height
+    ) {
+      return state.scale;
+    }
     return C.fitScale();
   };
 
@@ -266,23 +396,26 @@
     state.symmetry = mode;
   };
 
-  /* Composites the frame: reference (under), art, grid lines. Grid lines are
-     always last, so they stay legible over both the art and the reference. */
+  /* Composites the frame: reference (under), art, the live conversion (over
+     the art), the reference (over), and the grid lines last, so they stay
+     legible over everything. */
   C.composite = function composite() {
     const context = state.context;
     if (!context) return;
 
-    const size = state.size;
-    const css = size * state.scale;
+    const width = state.width;
+    const height = state.height;
+    const cssWidth = width * state.scale;
+    const cssHeight = height * state.scale;
     const ratio = state.ratio || root.devicePixelRatio || 1;
 
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.imageSmoothingEnabled = false;
-    context.clearRect(0, 0, css, css);
+    context.clearRect(0, 0, cssWidth, cssHeight);
 
     /* The empty-cell colour, so the grid is always legible. */
     context.fillStyle = "#1a1a1f";
-    context.fillRect(0, 0, css, css);
+    context.fillRect(0, 0, cssWidth, cssHeight);
 
     const reference = VP.reference;
     const hasReference = reference && reference.hasImage();
@@ -291,15 +424,22 @@
 
     if (hasReference && mode === "under") {
       context.globalAlpha = opacity;
-      context.drawImage(state.refBuffer, 0, 0, css, css);
+      context.drawImage(state.refBuffer, 0, 0, cssWidth, cssHeight);
       context.globalAlpha = 1;
     }
 
-    context.drawImage(state.artBuffer, 0, 0, css, css);
+    context.drawImage(state.artBuffer, 0, 0, cssWidth, cssHeight);
+
+    /* The live conversion, over the art. It is a layer of this canvas, not
+       a second canvas: the Image mode shows this same canvas beside the
+       photo. */
+    if (state.previewBuffer) {
+      context.drawImage(state.previewBuffer, 0, 0, cssWidth, cssHeight);
+    }
 
     if (hasReference && mode === "over") {
       context.globalAlpha = opacity;
-      context.drawImage(state.refBuffer, 0, 0, css, css);
+      context.drawImage(state.refBuffer, 0, 0, cssWidth, cssHeight);
       context.globalAlpha = 1;
     }
 
@@ -307,12 +447,15 @@
       context.strokeStyle = "rgba(255,255,255,0.08)";
       context.lineWidth = 1;
       context.beginPath();
-      for (let i = 1; i < size; i += 1) {
-        const position = Math.round(i * state.scale) + 0.5;
-        context.moveTo(position, 0);
-        context.lineTo(position, css);
-        context.moveTo(0, position);
-        context.lineTo(css, position);
+      for (let i = 1; i < width; i += 1) {
+        const x = Math.round(i * state.scale) + 0.5;
+        context.moveTo(x, 0);
+        context.lineTo(x, cssHeight);
+      }
+      for (let i = 1; i < height; i += 1) {
+        const y = Math.round(i * state.scale) + 0.5;
+        context.moveTo(0, y);
+        context.lineTo(cssWidth, y);
       }
       context.stroke();
     }
@@ -339,8 +482,8 @@
     const col = Math.floor((event.clientX - rect.left) / state.scale);
     const row = Math.floor((event.clientY - rect.top) / state.scale);
     return [
-      Math.min(state.size - 1, Math.max(0, col)),
-      Math.min(state.size - 1, Math.max(0, row)),
+      Math.min(state.width - 1, Math.max(0, col)),
+      Math.min(state.height - 1, Math.max(0, row)),
     ];
   }
 

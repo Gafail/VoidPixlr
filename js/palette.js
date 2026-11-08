@@ -17,29 +17,51 @@
 
   /* --- the built-in palettes ---------------------------------------------- */
 
+  /* Twelve hue families, each with one step in the 16, two in the 32 and
+     four in the 64 — so every hue gets the same depth and no hue is left
+     with a single lonely colour while another has a ramp.
+
+     The families, in order: red, orange, yellow, lime, green, teal, cyan,
+     azure, blue, indigo, violet, magenta.
+
+     Each ramp runs dark to light, and the shadows drift cool while the
+     highlights drift warm — the same "B-grading" the good pixel-art
+     palettes use, so a sprite lit from one side still reads correctly.
+
+     The neutrals fill the rest: four in the 16, eight in the 32, sixteen in
+     the 64. The extra ones are the earths — browns, tans and warm greys —
+     which pixel art needs far more of than a hue wheel suggests. */
+
   const VOID_16 = [
-    "#ffffff", "#000000", "#7f7f7f", "#ff4f4f",
-    "#ffa64f", "#ffe44f", "#4fff4f", "#4fffff",
-    "#4f4fff", "#a64fff", "#ff4fff", "#8b4513",
-    "#0d0d0f", "#c8c8cc", "#2a2a33", "#e8b48a",
+    /* the neutrals */
+    "#0d0d0f", "#2a2a33", "#8b8b96", "#ffffff",
+    /* the base step of every hue family */
+    "#d1333a", "#e07a1f", "#d9b30a", "#8fc626",
+    "#2f9e44", "#17a89a", "#12b5cc", "#2f7fd6",
+    "#3559d9", "#4f4fd9", "#7a3fd0", "#c22fb8",
   ];
 
   const VOID_32 = VOID_16.concat([
-    "#14141a", "#3a3a44", "#a8a8b0", "#f0f0f4",
-    "#5c1414", "#8f2020", "#ff8a8a", "#143c1f",
-    "#20502f", "#8aff9a", "#141c4f", "#1f2f7a",
-    "#8a9aff", "#4a1440", "#6b1f5c", "#ff8ae0",
+    /* the shadow step of every hue family */
+    "#4a0e14", "#5c2a00", "#5c4a00", "#2e4a00",
+    "#0d3a18", "#003a3a", "#00454c", "#0a2a52",
+    "#101c4f", "#1a1440", "#2a0f45", "#3f0a35",
+    /* four more neutrals */
+    "#000000", "#55555f", "#b8b8c2", "#f4f4f8",
   ]);
 
   const VOID_64 = VOID_32.concat([
-    "#0a0a0d", "#57575f", "#8a8a94", "#e4e4e8",
-    "#5c2a00", "#a04a00", "#d96a10", "#ff8a2a",
-    "#ffab5c", "#ffc98a", "#ffe0b3", "#5c4a00",
-    "#a08a00", "#d9c410", "#ffe44f", "#fff06a",
-    "#fff89a", "#fffbc3", "#00454c", "#00747f",
-    "#00a8b8", "#4fffff", "#8affff", "#b8ffff",
-    "#e0ffff", "#2a0045", "#4a0070", "#7a1aa8",
-    "#a64fff", "#c98aff", "#e0b8ff", "#f0dfff",
+    /* the light step of every hue family */
+    "#f26b62", "#f9a54a", "#f5d94a", "#c2e35c",
+    "#6ecf6e", "#4fd6c2", "#4fd9ea", "#62b0f0",
+    "#6b8cf0", "#8a8af0", "#a878f0", "#f06ad6",
+    /* the highlight step of every hue family */
+    "#ffb0a2", "#ffd08a", "#fff5a8", "#eaf7a8",
+    "#b6f0a8", "#a8f0e2", "#a8f0f7", "#a8d8ff",
+    "#a8bcff", "#c0c0ff", "#d8b8ff", "#ffb0ee",
+    /* eight more neutrals — the earths */
+    "#16161e", "#3a3a46", "#6b6b76", "#d8d8e0",
+    "#2e2620", "#554840", "#8a7259", "#b8a68d",
   ]);
 
   const P = (VP.palette = {});
@@ -59,6 +81,68 @@
     for (let i = 0; i < 16; i += 1) if (a[i] !== b[i]) return false;
     for (let i = 0; i < 32; i += 1) if (b[i] !== c[i]) return false;
     return true;
+  };
+
+  /* --- the hue families ---------------------------------------------------- */
+
+  /* Twelve families around the wheel, and the neutral family. The families
+     are given by their representative hue; a colour belongs to the family
+     whose hue it is closest to, which is how a drifting shadow or a warm
+     highlight still lands on the family it belongs to. */
+  const HUE_FAMILIES = [
+    { name: "red", hue: 353 },
+    { name: "orange", hue: 28 },
+    { name: "yellow", hue: 49 },
+    { name: "lime", hue: 81 },
+    { name: "green", hue: 131 },
+    { name: "teal", hue: 174 },
+    { name: "cyan", hue: 187 },
+    { name: "azure", hue: 211 },
+    { name: "blue", hue: 227 },
+    { name: "indigo", hue: 240 },
+    { name: "violet", hue: 264 },
+    { name: "magenta", hue: 304 },
+  ];
+
+  P.HUE_FAMILIES = HUE_FAMILIES;
+
+  /* Below this saturation a colour is a neutral or an earth, not a hue. */
+  const HUE_SATURATION_FLOOR = 0.3;
+
+  P.HUE_SATURATION_FLOOR = HUE_SATURATION_FLOOR;
+
+  /* The family a colour belongs to: "neutral" for the greys and the earths,
+     otherwise the nearest family on the wheel. */
+  P.familyOf = function familyOf(hex) {
+    const rgb = Q.hexToRgb(hex);
+    if (!rgb) return "neutral";
+    const hsl = Q.rgbToHsl(rgb[0], rgb[1], rgb[2]);
+    if (hsl[1] < HUE_SATURATION_FLOOR) return "neutral";
+
+    let best = HUE_FAMILIES[0];
+    let bestDistance = 360;
+    for (const family of HUE_FAMILIES) {
+      let distance = Math.abs(hsl[0] - family.hue);
+      if (distance > 180) distance = 360 - distance;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = family;
+      }
+    }
+    return best.name;
+  };
+
+  /* How many colours of each family a palette holds. This is the balance
+     the built-ins are designed around: every hue family has the same depth,
+     so no hue is left with one lonely colour. */
+  P.hueCoverage = function hueCoverage(colours) {
+    const counts = { neutral: 0 };
+    for (const family of HUE_FAMILIES) counts[family.name] = 0;
+    for (const hex of colours) {
+      const family = P.familyOf(hex);
+      counts[family] = (counts[family] || 0) + 1;
+    }
+    return counts;
   };
 
   /* --- model --------------------------------------------------------------- */

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VoidPixlr — pixel art, and photos into pixels</title>
-<meta name="description" content="A pixel-art canvas for 16 to 256px art. Load a photo, frame it under a grid, pull a palette out of it and convert it to pixel art — entirely in your browser, with nothing ever uploaded.">
+<meta name="description" content="A pixel-art canvas for 16 to 512px art, square or not. Load a photo, frame it under a grid, pull a palette out of it and convert it to pixel art — entirely in your browser, with nothing ever uploaded.">
 <meta name="color-scheme" content="dark">
 <meta name="referrer" content="no-referrer">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d0d0f'/%3E%3Crect x='2' y='2' width='5' height='5' fill='%234f4fff'/%3E%3Crect x='9' y='9' width='5' height='5' fill='%23e8e8ea'/%3E%3C/svg%3E">
@@ -30,19 +30,11 @@
 
     <div class="group" role="group" aria-label="Canvas size">
       <span class="group-label">Size</span>
-      <button type="button" class="btn size-btn" id="size-16">16</button>
-      <button type="button" class="btn size-btn" id="size-32">32</button>
-      <button type="button" class="btn size-btn" id="size-64">64</button>
-      <button type="button" class="btn size-btn" id="size-128">128</button>
-      <button type="button" class="btn size-btn" id="size-256">256</button>
-    </div>
-
-    <div class="group" role="group" aria-label="Zoom">
-      <span class="group-label">Zoom</span>
-      <button type="button" class="btn" id="zoom-out" aria-label="Zoom out">&minus;</button>
-      <span class="readout" id="zoom-readout">16&times;</span>
-      <button type="button" class="btn" id="zoom-in" aria-label="Zoom in">+</button>
-      <button type="button" class="btn" id="zoom-fit">Fit</button>
+      <label class="size-field" for="size-x">X</label>
+      <select id="size-x" class="select size-select" aria-label="Canvas width"></select>
+      <label class="size-field" for="size-y">Y</label>
+      <select id="size-y" class="select size-select" aria-label="Canvas height"></select>
+      <button type="button" class="btn is-active" id="size-lock" aria-pressed="true" title="X and Y are tied together — the canvas is square. Click to set them separately.">linked</button>
     </div>
 
     <div class="group" role="group" aria-label="Grid lines">
@@ -169,14 +161,12 @@
   </aside>
 
   <!-- ── Centre ───────────────────────────────────────────────────────────── -->
+  <!-- One canvas. The Image mode does not bring a second one: it brings the
+       source pane, and the canvas that was already there becomes the live
+       result. -->
   <main class="centre" id="centre">
 
-    <div class="canvas-view" id="canvas-view">
-      <div class="canvas-region" id="canvas-region">
-        <canvas class="art-canvas" id="art-canvas" width="256" height="256"></canvas>
-      </div>
-    </div>
-
+    <!-- The controls of the Image mode. -->
     <div class="workspace" id="workspace" hidden>
 
       <div class="ws-blocks">
@@ -187,16 +177,6 @@
         <section class="ws-block">
           <h2 class="ws-title">Source</h2>
           <p class="ws-note" id="ws-load-note"></p>
-          <div class="ws-labelled">
-            <span class="panel-label">Framing</span>
-            <div class="ws-row">
-              <button type="button" class="btn" id="ws-fit">Fit</button>
-              <button type="button" class="btn" id="ws-pixel">Pixel</button>
-              <button type="button" class="btn" id="ws-zoom-out">&minus;</button>
-              <span class="readout" id="ws-zoom-readout">1&times;</span>
-              <button type="button" class="btn" id="ws-zoom-in">+</button>
-            </div>
-          </div>
 
           <div class="ws-slider">
             <label for="ws-black">Black point <span class="readout" id="ws-black-value">0%</span></label>
@@ -289,13 +269,10 @@
         <section class="ws-block">
           <h2 class="ws-title">Convert</h2>
           <div class="ws-labelled">
-            <span class="panel-label">Size</span>
+            <span class="panel-label">Target</span>
             <div class="ws-row">
-              <button type="button" class="btn" id="ws-size-16">16</button>
-              <button type="button" class="btn is-active" id="ws-size-32">32</button>
-              <button type="button" class="btn" id="ws-size-64">64</button>
-              <button type="button" class="btn" id="ws-size-128">128</button>
-              <button type="button" class="btn" id="ws-size-256">256</button>
+              <span class="readout" id="ws-target-size">32 &times; 32</span>
+              <span class="ws-note inline-note">the canvas size &mdash; set it in the top bar</span>
             </div>
           </div>
           <div class="ws-labelled">
@@ -320,26 +297,43 @@
 
         <!-- The pinned action. It never scrolls away and is never cut. -->
         <div class="ws-foot">
-          <button type="button" class="btn wide accent-btn" id="ws-convert">Convert to canvas</button>
+          <button type="button" class="btn wide accent-btn" id="ws-convert">Apply to canvas</button>
           <p class="ws-note" id="ws-status"></p>
         </div>
       </div>
-
-      <div class="ws-stage">
-        <!-- The pane label is a header, not an overlay: it used to sit on top
-             of the image, and the grid lines ran through the text. -->
-        <div class="ws-pane">
-          <div class="pane-head"><span class="pane-label">Source &middot; pan and zoom</span></div>
-          <canvas id="source-pane"></canvas>
-          <p class="pane-empty" id="ws-source-empty">Drop an image here, or <button type="button" class="link-btn" id="ws-source-load">click to load</button></p>
-        </div>
-        <div class="ws-pane">
-          <div class="pane-head"><span class="pane-label">Result &middot; live</span></div>
-          <canvas id="preview-pane"></canvas>
-        </div>
-      </div>
-
     </div>
+
+    <!-- The photo. Its own zoom, which never touches the canvas's. -->
+    <div class="ws-pane" id="ws-source-pane" hidden>
+      <div class="pane-head">
+        <span class="pane-label">Source</span>
+        <span class="pane-tools">
+          <input type="range" id="ws-zoom" min="0" max="100" value="50" aria-label="Source zoom">
+          <span class="readout" id="ws-zoom-readout">1&times;</span>
+          <button type="button" class="btn" id="ws-fit" title="Fit the photo to the grid">Fit</button>
+          <button type="button" class="btn" id="ws-pixel" title="One photo pixel per cell">Pixel</button>
+        </span>
+      </div>
+      <canvas id="source-pane"></canvas>
+      <p class="pane-empty" id="ws-source-empty">Drop an image here, or <button type="button" class="link-btn" id="ws-source-load">click to load</button></p>
+    </div>
+
+    <!-- The artwork. In the Image mode this is where the live conversion
+         lands, over the art, in the very same canvas. -->
+    <div class="canvas-view" id="canvas-view">
+      <div class="pane-head">
+        <span class="pane-label">Canvas</span>
+        <span class="pane-tools">
+          <input type="range" id="canvas-zoom" min="0" max="100" value="50" aria-label="Canvas zoom">
+          <span class="readout" id="canvas-zoom-readout">16&times;</span>
+          <button type="button" class="btn" id="canvas-fit" title="Fit the canvas to the pane">Fit</button>
+        </span>
+      </div>
+      <div class="canvas-region" id="canvas-region">
+        <canvas class="art-canvas" id="art-canvas" width="256" height="256"></canvas>
+      </div>
+    </div>
+
   </main>
 
   <!-- ── Bottom bar ───────────────────────────────────────────────────────── -->
@@ -347,7 +341,6 @@
        bar is for working on it. -->
   <footer class="bottom-bar" id="bottom">
     <button type="button" class="btn" id="new-canvas" title="New (R)">New</button>
-    <button type="button" class="btn" id="resize-toggle">Resize</button>
     <button type="button" class="btn" id="import">Import</button>
     <button type="button" class="btn" id="export-png">Export PNG</button>
     <button type="button" class="btn" id="export-json">Export JSON</button>

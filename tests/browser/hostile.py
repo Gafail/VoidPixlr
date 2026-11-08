@@ -205,7 +205,8 @@ def run(fx: Marionette, base: str) -> None:
         proto.setItem = function () { throw new Error('quota exceeded'); };
         var outcome;
         try {
-          outcome = VP.storage.saveCanvas(16, VP.palette.colours(), VP.canvas.grid);
+          outcome = VP.storage.saveCanvas(16, 16, VP.palette.colours(),
+            VP.canvas.grid);
         } catch (e) {
           outcome = 'threw: ' + e.message;
         }
@@ -221,15 +222,15 @@ def run(fx: Marionette, base: str) -> None:
     section("switching palettes with art on the canvas")
     fx.execute_script(
         "VP.canvas.setGrid(new Int8Array(256).fill(-1));"
-        "VP.canvas.paintSymmetric(0, 0, 3);"  # red
-        "VP.canvas.paintSymmetric(1, 0, 8);"  # blue
+        "VP.canvas.paintSymmetric(0, 0, 4);"  # red
+        "VP.canvas.paintSymmetric(1, 0, 12);"  # blue
         "VP.canvas.composite();"
     )
     before = fx.execute_script(
         "return [VP.palette.colours()[VP.canvas.grid[0]],"
         " VP.palette.colours()[VP.canvas.grid[1]]];"
     )
-    check("the art shows the expected colours", before == ["#ff4f4f", "#4f4fff"], str(before))
+    check("the art shows the expected colours", before == ["#d1333a", "#3559d9"], str(before))
 
     fx.execute_script("VP.palette.switchTo('Void Full');")
     time.sleep(0.3)
@@ -239,7 +240,7 @@ def run(fx: Marionette, base: str) -> None:
     )
     check(
         "the colours survive the switch exactly",
-        after == ["#ff4f4f", "#4f4fff"],
+        after == ["#d1333a", "#3559d9"],
         str(after),
     )
 
@@ -251,7 +252,7 @@ def run(fx: Marionette, base: str) -> None:
     )
     check(
         "the colours survive the second switch exactly",
-        after == ["#ff4f4f", "#4f4fff"],
+        after == ["#d1333a", "#3559d9"],
         str(after),
     )
 
@@ -297,16 +298,24 @@ def run(fx: Marionette, base: str) -> None:
         "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
     )
     time.sleep(1.2)
-    fx.execute_script("VP.workspace.state.convertSize = 16; VP.workspace.updateCellSize();")
+    fx.execute_script("VP.workspace.updateCellSize();")
     fx.execute_script("VP.workspace.extract();")
     time.sleep(0.3)
     fx.execute_script("VP.workspace.convert();")
     time.sleep(0.4)
-    first_size = fx.execute_script("return VP.canvas.state.size;")
+    first_size = fx.execute_script(
+        "return VP.canvas.state.width + '×' + VP.canvas.state.height;"
+    )
     fx.execute_script("VP.workspace.convert();")
     time.sleep(0.4)
-    second_size = fx.execute_script("return VP.canvas.state.size;")
-    check("converting twice is stable", first_size == second_size == 16, f"{first_size}, {second_size}")
+    second_size = fx.execute_script(
+        "return VP.canvas.state.width + '×' + VP.canvas.state.height;"
+    )
+    check(
+        "converting twice is stable",
+        first_size == second_size,
+        f"{first_size}, {second_size}",
+    )
 
     section("undoing everything")
     depth = fx.execute_script("return VP.app.state.history.undoCount;")

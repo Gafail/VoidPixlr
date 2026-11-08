@@ -24,6 +24,10 @@
     exportBackground: null,
     importMode: "adopt",
     pendingResize: null,
+    /* Whether X and Y are tied together. Locked, they always match and the
+       canvas is square; unlocked, they are two independent edges and the
+       canvas can be a rectangle. */
+    sizeLocked: true,
     prefs: {
       scale: 16,
       fitZoom: false,
@@ -37,6 +41,7 @@
       srcPanX: 0,
       srcPanY: 0,
       srcZoom: 0,
+      sizeLocked: true,
     },
   };
 
@@ -67,13 +72,15 @@
     prefs.srcPanX = VP.workspace.state.panX;
     prefs.srcPanY = VP.workspace.state.panY;
     prefs.srcZoom = VP.workspace.state.zoom;
+    prefs.sizeLocked = state.sizeLocked;
     return prefs;
   }
 
   function saveNow() {
     try {
       VP.storage.saveCanvas(
-        VP.canvas.state.size,
+        VP.canvas.state.width,
+        VP.canvas.state.height,
         VP.palette.colours(),
         VP.canvas.grid
       );
@@ -93,6 +100,17 @@
   }
 
   APP.autosave = autosave;
+
+  /* The canvas changed size around it: the Image mode takes half the
+     centre away from it, and the window can do the same. The zoom follows
+     the room, unless the user has pinned it themselves. */
+  APP.onLayoutChange = function onLayoutChange() {
+    if (state.prefs.fitZoom) {
+      VP.canvas.setScale(VP.canvas.fitScale());
+    } else {
+      VP.canvas.setScale(VP.canvas.scaleForSize());
+    }
+  };
 
   function flash(node, text, ms) {
     if (!node) return;
@@ -151,13 +169,20 @@
   /* --- undo and redo ----------------------------------------------------------- */
 
   function snapshot() {
-    return { size: VP.canvas.state.size, grid: VP.canvas.grid };
+    return {
+      width: VP.canvas.state.width,
+      height: VP.canvas.state.height,
+      grid: VP.canvas.grid,
+    };
   }
 
   function applySnapshot(snap) {
     if (!snap) return;
-    if (snap.size !== VP.canvas.state.size) {
-      VP.canvas.resize(snap.size);
+    if (
+      snap.width !== VP.canvas.state.width ||
+      snap.height !== VP.canvas.state.height
+    ) {
+      VP.canvas.resize(snap.width, snap.height);
     }
     VP.canvas.setGrid(snap.grid);
     autosave();
@@ -179,7 +204,8 @@
   /* The canvas calls these at the start and the end of a stroke. */
   APP.beginStroke = function beginStroke() {
     state.pendingStroke = {
-      size: VP.canvas.state.size,
+      width: VP.canvas.state.width,
+      height: VP.canvas.state.height,
       grid: Int8Array.from(VP.canvas.grid),
     };
   };
@@ -208,22 +234,11 @@
   }
 
   function renderTopBar() {
-    const size = VP.canvas.state.size;
-    for (const value of Q.ALLOWED_SIZES) {
-      const node = $("size-" + value);
-      if (node) node.classList.toggle("is-active", value === size);
-    }
+    syncSizeControls();
+    syncCanvasZoom();
 
     const symmetry = $("symmetry-toggle");
     if (symmetry) symmetry.textContent = VP.canvas.SYMMETRY[VP.canvas.state.symmetry];
-
-    const readout = $("zoom-readout");
-    if (readout) {
-      readout.textContent =
-        state.prefs.fitZoom && VP.canvas.state.scale === VP.canvas.fitScale()
-          ? "fit"
-          : VP.canvas.state.scale + "×";
-    }
 
     const gridToggle = $("grid-toggle");
     if (gridToggle) {
@@ -240,6 +255,49 @@
 
     const workspaceToggle = $("workspace-toggle");
     if (workspaceToggle) workspaceToggle.classList.toggle("is-active", VP.workspace.isOpen());
+  }
+
+  /* The canvas's zoom slider and its readout. One value, two controls: the
+     slider is an input, the state is the truth, and the readout is told
+     what the truth is. */
+  function syncCanvasZoom() {
+    const slider = $("canvas-zoom");
+    if (slider && document.activeElement !== slider) {
+      slider.value = String(VP.canvas.sliderFromScale(VP.canvas.state.scale));
+    }
+    const readout = $("canvas-zoom-readout");
+    if (readout) {
+      readout.textContent =
+        state.prefs.fitZoom && VP.canvas.state.scale === VP.canvas.fitScale()
+          ? "fit · " + VP.canvas.state.scale + "×"
+          : VP.canvas.state.scale + "×";
+    }
+  }
+
+  /* The X and Y dropdowns, and the lock between them.
+
+     They show the size the canvas is — or the size it is about to become,
+     when a resize is waiting for confirmation. The lock button says whether
+     the two are tied together. */
+  function syncSizeControls() {
+    const pending = state.pendingResize;
+    const width = pending ? pending.width : VP.canvas.state.width;
+    const height = pending ? pending.height : VP.canvas.state.height;
+
+    const x = $("size-x");
+    if (x && x.value !== String(width)) x.value = String(width);
+    const y = $("size-y");
+    if (y && y.value !== String(height)) y.value = String(height);
+
+    const lock = $("size-lock");
+    if (lock) {
+      lock.textContent = state.sizeLocked ? "linked" : "separate";
+      lock.classList.toggle("is-active", state.sizeLocked);
+      lock.setAttribute("aria-pressed", state.sizeLocked ? "true" : "false");
+      lock.title = state.sizeLocked
+        ? "X and Y are tied together — the canvas is square. Click to set them separately."
+        : "X and Y are separate — the canvas can be a rectangle. Click to tie them together.";
+    }
   }
 
   function renderReferenceStrip() {
@@ -276,28 +334,61 @@
 
   /* --- the top bar -------------------------------------------------------------- */
 
-  function requestSize(size) {
-    if (size === VP.canvas.state.size) return;
+  /* The size controls. X and Y are dropdowns, never free text: the canvas
+     is either one of the allowed sizes or it is not a canvas this app
+     draws. */
+  function fillSizes(node) {
+    if (!node || node.options.length) return;
+    for (const value of Q.ALLOWED_SIZES) {
+      const option = document.createElement("option");
+      option.value = String(value);
+      option.textContent = String(value);
+      node.appendChild(option);
+    }
+  }
+
+  function requestResize(width, height) {
+    if (
+      width === VP.canvas.state.width &&
+      height === VP.canvas.state.height
+    ) {
+      /* Back to where it started: there is nothing to confirm. */
+      state.pendingResize = null;
+      const panel = $("resize-panel");
+      if (panel) panel.hidden = true;
+      syncSizeControls();
+      return;
+    }
+
     if (hasArt()) {
-      state.pendingResize = size;
+      state.pendingResize = { width, height };
       const panel = $("resize-panel");
       if (panel) {
         panel.hidden = false;
         const label = $("resize-label");
         if (label) {
           label.textContent =
-            "Resize " + VP.canvas.state.size + "×" + VP.canvas.state.size + " → " + size + "×" + size + "?";
+            "Resize " +
+            VP.canvas.state.width +
+            "×" +
+            VP.canvas.state.height +
+            " → " +
+            width +
+            "×" +
+            height +
+            "?";
         }
       }
+      syncSizeControls();
       return;
     }
-    doResize(size);
+    doResize(width, height);
   }
 
-  function doResize(size) {
+  function doResize(width, height) {
     state.history.push(snapshot());
-    VP.canvas.resize(size);
-    state.history.setDepth(VP.history.depthFor(size));
+    VP.canvas.resize(width, height);
+    state.history.setDepth(VP.history.depthFor(width, height));
     /* The zoom follows the canvas. A 256px canvas at the 16x it inherited
        from a 32px one is 4096 CSS pixels across — three times the pane.
        The current zoom is kept if the canvas still fits; otherwise it
@@ -320,9 +411,40 @@
     const loadPhoto = $("load-photo");
     if (loadPhoto) loadPhoto.addEventListener("click", () => openFilePicker("file-image"));
 
-    for (const value of Q.ALLOWED_SIZES) {
-      const node = $("size-" + value);
-      if (node) node.addEventListener("click", () => requestSize(value));
+    /* The size: X, Y and the lock between them. */
+    const x = $("size-x");
+    const y = $("size-y");
+    const lock = $("size-lock");
+    fillSizes(x);
+    fillSizes(y);
+
+    if (x) {
+      x.addEventListener("change", () => {
+        const value = parseInt(x.value, 10);
+        if (!Q.ALLOWED_SIZES.includes(value)) return;
+        /* Linked, the two edges are one number: changing either sets both. */
+        if (state.sizeLocked) requestResize(value, value);
+        else requestResize(value, VP.canvas.state.height);
+      });
+    }
+    if (y) {
+      y.addEventListener("change", () => {
+        const value = parseInt(y.value, 10);
+        if (!Q.ALLOWED_SIZES.includes(value)) return;
+        if (state.sizeLocked) requestResize(value, value);
+        else requestResize(VP.canvas.state.width, value);
+      });
+    }
+    if (lock) {
+      lock.addEventListener("click", () => {
+        state.sizeLocked = !state.sizeLocked;
+        if (state.sizeLocked) {
+          /* Tying them together makes Y match X. */
+          requestResize(VP.canvas.state.width, VP.canvas.state.width);
+        }
+        autosave();
+        renderAll();
+      });
     }
 
     const symmetry = $("symmetry-toggle");
@@ -335,13 +457,17 @@
       });
     }
 
-    const zoomIn = $("zoom-in");
-    if (zoomIn) zoomIn.addEventListener("click", () => stepZoom(1));
-    const zoomOut = $("zoom-out");
-    if (zoomOut) zoomOut.addEventListener("click", () => stepZoom(-1));
-    const zoomFit = $("zoom-fit");
-    if (zoomFit) {
-      zoomFit.addEventListener("click", () => {
+    /* The canvas's own zoom slider. The source pane has its own, and
+       neither one moves the other. */
+    const zoomSlider = $("canvas-zoom");
+    if (zoomSlider) {
+      zoomSlider.addEventListener("input", () => {
+        setZoom(VP.canvas.scaleFromSlider(parseFloat(zoomSlider.value)));
+      });
+    }
+    const canvasFit = $("canvas-fit");
+    if (canvasFit) {
+      canvasFit.addEventListener("click", () => {
         state.prefs.fitZoom = true;
         VP.canvas.setScale(VP.canvas.fitScale());
         autosave();
@@ -383,23 +509,14 @@
       });
     }
 
-    const resizeToggle = $("resize-toggle");
-    if (resizeToggle) {
-      resizeToggle.addEventListener("click", () => {
-        const panel = $("resize-panel");
-        if (!panel) return;
-        panel.hidden = !panel.hidden;
-      });
-    }
-
     const resizeConfirm = $("resize-confirm");
     if (resizeConfirm) {
       resizeConfirm.addEventListener("click", () => {
-        const size = state.pendingResize;
+        const pending = state.pendingResize;
         const panel = $("resize-panel");
         if (panel) panel.hidden = true;
         state.pendingResize = null;
-        if (size) doResize(size);
+        if (pending) doResize(pending.width, pending.height);
       });
     }
 
@@ -409,18 +526,22 @@
         const panel = $("resize-panel");
         if (panel) panel.hidden = true;
         state.pendingResize = null;
+        syncSizeControls();
       });
     }
   }
 
   function stepZoom(direction) {
-    const scales = [4, 8, 16, 32];
+    const scales = VP.canvas.SCALES;
     const current = VP.canvas.state.scale;
-    let index = scales.indexOf(current);
-    if (index < 0) {
-      index = current < 8 ? 1 : current < 16 ? 2 : 3;
+    let next;
+    if (direction > 0) {
+      next = scales.find((value) => value > current);
+      if (next === undefined) next = scales[scales.length - 1];
+    } else {
+      const below = scales.filter((value) => value < current);
+      next = below.length ? below[below.length - 1] : scales[0];
     }
-    const next = scales[Math.min(scales.length - 1, Math.max(0, index + direction))];
     setZoom(next);
   }
 
@@ -610,7 +731,8 @@
     if (exportJson) {
       exportJson.addEventListener("click", () => {
         VP.io.exportJSON(
-          VP.canvas.state.size,
+          VP.canvas.state.width,
+          VP.canvas.state.height,
           VP.palette.colours(),
           VP.canvas.grid
         );
@@ -631,7 +753,8 @@
       copyPng.addEventListener("click", () => {
         VP.io
           .copyPNG(
-            VP.canvas.state.size,
+            VP.canvas.state.width,
+            VP.canvas.state.height,
             VP.palette.colours(),
             VP.canvas.grid,
             state.exportScale,
@@ -665,7 +788,8 @@
         node.addEventListener("click", () => {
           state.exportScale = scale;
           VP.io.exportPNG(
-            VP.canvas.state.size,
+            VP.canvas.state.width,
+            VP.canvas.state.height,
             VP.palette.colours(),
             VP.canvas.grid,
             scale,
@@ -723,11 +847,12 @@
   }
 
   function refreshExportPanel() {
-    const size = VP.canvas.state.size;
+    const width = VP.canvas.state.width;
+    const height = VP.canvas.state.height;
     for (const scale of [1, 4, 8, 16, 32]) {
       const node = $("export-scale-" + scale);
       if (!node) continue;
-      const allowed = VP.io.scaleAllowed(size, scale);
+      const allowed = VP.io.scaleAllowed(width, height, scale);
       node.disabled = !allowed;
       node.classList.toggle("is-active", scale === state.exportScale);
       node.textContent = allowed ? scale + "×" : scale + "× too large";
@@ -846,11 +971,11 @@
         /* The file's palette replaces the current one, and the indices map
            1:1. Exact and lossless. */
         state.history.push(snapshot());
-        VP.canvas.resize(result.size);
-        const grid = new Int8Array(result.size * result.size);
-        for (let row = 0; row < result.size; row += 1) {
-          for (let col = 0; col < result.size; col += 1) {
-            grid[row * result.size + col] = pixels[row][col];
+        VP.canvas.resize(result.width, result.height);
+        const grid = new Int8Array(result.width * result.height);
+        for (let row = 0; row < result.height; row += 1) {
+          for (let col = 0; col < result.width; col += 1) {
+            grid[row * result.width + col] = pixels[row][col];
           }
         }
         VP.palette.adopt(palette);
@@ -859,11 +984,11 @@
         /* Remap: every colour in the file snaps to the nearest colour in the
            current palette. */
         state.history.push(snapshot());
-        VP.canvas.resize(result.size);
-        const grid = new Int8Array(result.size * result.size);
-        for (let row = 0; row < result.size; row += 1) {
-          for (let col = 0; col < result.size; col += 1) {
-            grid[row * result.size + col] = pixels[row][col];
+        VP.canvas.resize(result.width, result.height);
+        const grid = new Int8Array(result.width * result.height);
+        for (let row = 0; row < result.height; row += 1) {
+          for (let col = 0; col < result.width; col += 1) {
+            grid[row * result.width + col] = pixels[row][col];
           }
         }
         VP.canvas.setGrid(Q.remapGrid(grid, palette, VP.palette.colours()));
@@ -884,11 +1009,14 @@
     const error = $("import-error");
     VP.io.readImageData(file).then((imageData) => {
       const allowed = Q.ALLOWED_SIZES;
-      let size = allowed.reduce((best, value) =>
-        Math.abs(value - imageData.width) < Math.abs(best - imageData.width) ? value : best
-      );
+      const nearest = (value) =>
+        allowed.reduce((best, candidate) =>
+          Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best
+        );
+      const width = nearest(imageData.width);
+      const height = nearest(imageData.height);
 
-      if (imageData.width !== size || imageData.height !== size) {
+      if (imageData.width !== width || imageData.height !== height) {
         const panel = $("import-panel");
         if (panel) panel.hidden = false;
         if (error) {
@@ -898,9 +1026,9 @@
             "×" +
             imageData.height +
             ". Scale it to " +
-            size +
+            width +
             "×" +
-            size +
+            height +
             ", or crop from the top-left?";
         }
         const scaleChoice = $("import-scale");
@@ -911,9 +1039,9 @@
         const finish = (mode) => {
           const scaled =
             mode === "crop"
-              ? VP.io.cropImageData(imageData, size, size)
-              : VP.io.scaleImageData(imageData, size, size);
-          applySnap(scaled, size);
+              ? VP.io.cropImageData(imageData, width, height)
+              : VP.io.scaleImageData(imageData, width, height);
+          applySnap(scaled, width, height);
           if (scaleChoice) scaleChoice.hidden = true;
           if (cropChoice) cropChoice.hidden = true;
         };
@@ -923,15 +1051,15 @@
         return;
       }
 
-      applySnap(imageData, size);
+      applySnap(imageData, width, height);
     }).catch(() => {
       if (error) error.textContent = "that file could not be read";
     });
   }
 
-  function applySnap(imageData, size) {
+  function applySnap(imageData, width, height) {
     state.history.push(snapshot());
-    VP.canvas.resize(size);
+    VP.canvas.resize(width, height);
     const grid = VP.io.snapToPalette(imageData, VP.palette.colours());
     VP.canvas.setGrid(grid);
     autosave();
@@ -1044,6 +1172,16 @@
     }
   }
 
+  /* Is the source pane the thing the keyboard should act on? The two panes
+     have their own zooms, and the keyboard zooms whichever one the pointer
+     or the focus is in. */
+  function sourceFocused() {
+    const active = document.activeElement;
+    if (!active) return false;
+    const pane = $("ws-source-pane");
+    return !!(pane && pane.contains(active));
+  }
+
   function bindKeyboard() {
     document.addEventListener("keydown", (event) => {
       if (isTyping(event.target)) return;
@@ -1095,12 +1233,12 @@
         }
         case "+":
         case "=":
-          if (VP.workspace.isOpen()) VP.workspace.zoomBy(1.25);
+          if (sourceFocused()) VP.workspace.zoomBy(1.25);
           else stepZoom(1);
           break;
         case "-":
         case "_":
-          if (VP.workspace.isOpen()) VP.workspace.zoomBy(1 / 1.25);
+          if (sourceFocused()) VP.workspace.zoomBy(1 / 1.25);
           else stepZoom(-1);
           break;
         case "0":
@@ -1221,17 +1359,24 @@
     VP.palette.hooks.render = renderAll;
 
     VP.canvas.init($("art-canvas"));
+    /* The canvas's zoom slider and readout follow the scale, whoever set
+       it — the app's zoom control, a resize, or a layout change. */
+    VP.canvas.hooks.scale = () => syncCanvasZoom();
     VP.canvas.state.gridVisible =
       state.prefs.gridVisible === undefined ? true : !!state.prefs.gridVisible;
     VP.canvas.setSymmetry(state.prefs.symmetry || 0);
 
     if (storedCanvas) {
-      VP.canvas.state.size = storedCanvas.size;
-      VP.canvas.resize(storedCanvas.size);
+      VP.canvas.resize(storedCanvas.width, storedCanvas.height);
       VP.canvas.setGrid(storedCanvas.grid);
     }
 
-    state.history = VP.history.create(VP.history.depthFor(VP.canvas.state.size));
+    state.sizeLocked =
+      state.prefs.sizeLocked === undefined ? true : !!state.prefs.sizeLocked;
+
+    state.history = VP.history.create(
+      VP.history.depthFor(VP.canvas.state.width, VP.canvas.state.height)
+    );
 
     /* The reference layer's own settings. */
     VP.reference.state.mode = state.prefs.refMode || "off";
@@ -1248,11 +1393,17 @@
     VP.workspace.state.panX = state.prefs.srcPanX || 0;
     VP.workspace.state.panY = state.prefs.srcPanY || 0;
     VP.workspace.state.zoom = state.prefs.srcZoom || 1;
-    VP.workspace.onConvert = (result, size) => {
+    VP.workspace.onConvert = (result, width, height) => {
       state.history.push(snapshot());
-      VP.canvas.resize(size);
+      if (
+        width !== VP.canvas.state.width ||
+        height !== VP.canvas.state.height
+      ) {
+        VP.canvas.resize(width, height);
+      }
       VP.canvas.setGrid(result);
-      state.history.setDepth(VP.history.depthFor(size));
+      VP.canvas.clearPreview();
+      state.history.setDepth(VP.history.depthFor(width, height));
       autosave();
       renderAll();
     };

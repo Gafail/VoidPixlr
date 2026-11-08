@@ -24,12 +24,16 @@
 
   IO.MAX_EXPORT = MAX_EXPORT;
 
-  IO.scales = function scales(size) {
-    return [1, 4, 8, 16, 32].filter((scale) => size * scale <= MAX_EXPORT);
+  /* The export scales a canvas of any shape, so the limit is on the larger
+     edge: that is the axis that decides how big the backing store gets. */
+  IO.scales = function scales(width, height) {
+    const longest = Math.max(width, height === undefined ? width : height);
+    return [1, 4, 8, 16, 32].filter((scale) => longest * scale <= MAX_EXPORT);
   };
 
-  IO.scaleAllowed = function scaleAllowed(size, scale) {
-    return size * scale <= MAX_EXPORT;
+  IO.scaleAllowed = function scaleAllowed(width, height, scale) {
+    const longest = Math.max(width, height === undefined ? width : height);
+    return longest * scale <= MAX_EXPORT;
   };
 
   /* --- downloading ---------------------------------------------------------- */
@@ -52,15 +56,15 @@
 
   /* --- the artwork canvas ---------------------------------------------------- */
 
-  /* Builds a size x size canvas holding the artwork: the palette colours,
+  /* Builds a width x height canvas holding the artwork: the palette colours,
      transparent where nothing is drawn. */
-  IO.artCanvas = function artCanvas(size, palette, grid) {
+  IO.artCanvas = function artCanvas(width, height, palette, grid) {
     const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
-    context.clearRect(0, 0, size, size);
+    context.clearRect(0, 0, width, height);
 
     for (let i = 0; i < grid.length; i += 1) {
       const index = grid[i];
@@ -68,7 +72,7 @@
       const hex = palette[index];
       if (!hex) continue;
       context.fillStyle = hex;
-      context.fillRect(i % size, Math.floor(i / size), 1, 1);
+      context.fillRect(i % width, Math.floor(i / width), 1, 1);
     }
 
     return canvas;
@@ -78,21 +82,22 @@
 
   /* Renders the artwork at `scale` and downloads it. `background` is null for
      transparent, or a hex string for a solid one. */
-  IO.exportPNG = function exportPNG(size, palette, grid, scale, background) {
-    const art = IO.artCanvas(size, palette, grid);
-    const target = Math.min(MAX_EXPORT, size * scale);
+  IO.exportPNG = function exportPNG(width, height, palette, grid, scale, background) {
+    const art = IO.artCanvas(width, height, palette, grid);
+    const targetWidth = Math.min(MAX_EXPORT, width * scale);
+    const targetHeight = Math.min(MAX_EXPORT, height * scale);
     const canvas = document.createElement("canvas");
-    canvas.width = target;
-    canvas.height = target;
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
 
     if (background) {
       context.fillStyle = background;
-      context.fillRect(0, 0, target, target);
+      context.fillRect(0, 0, targetWidth, targetHeight);
     }
 
-    context.drawImage(art, 0, 0, target, target);
+    context.drawImage(art, 0, 0, targetWidth, targetHeight);
 
     let href;
     try {
@@ -101,26 +106,27 @@
       return { ok: false, error: "the image was too large to export" };
     }
 
-    triggerDownload(href, "voidpixlr-" + size + "x" + size + "-" + scale + "x.png");
+    triggerDownload(href, "voidpixlr-" + width + "x" + height + "-" + scale + "x.png");
     return { ok: true };
   };
 
   /* Copies the PNG to the clipboard. On a plain-http LAN address there is no
      secure context, so `navigator.clipboard` is undefined — the action falls
      back to a download. It never dead-ends. */
-  IO.copyPNG = function copyPNG(size, palette, grid, scale, background) {
-    const art = IO.artCanvas(size, palette, grid);
-    const target = Math.min(MAX_EXPORT, size * scale);
+  IO.copyPNG = function copyPNG(width, height, palette, grid, scale, background) {
+    const art = IO.artCanvas(width, height, palette, grid);
+    const targetWidth = Math.min(MAX_EXPORT, width * scale);
+    const targetHeight = Math.min(MAX_EXPORT, height * scale);
     const canvas = document.createElement("canvas");
-    canvas.width = target;
-    canvas.height = target;
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
     if (background) {
       context.fillStyle = background;
-      context.fillRect(0, 0, target, target);
+      context.fillRect(0, 0, targetWidth, targetHeight);
     }
-    context.drawImage(art, 0, 0, target, target);
+    context.drawImage(art, 0, 0, targetWidth, targetHeight);
 
     const canCopy =
       root.navigator &&
@@ -136,7 +142,7 @@
       } catch (error) {
         return Promise.resolve({ ok: false, mode: "error", error: "too large" });
       }
-      triggerDownload(href, "voidpixlr-" + size + "x" + size + "-" + scale + "x.png");
+      triggerDownload(href, "voidpixlr-" + width + "x" + height + "-" + scale + "x.png");
       return Promise.resolve({ ok: true, mode: "download" });
     }
 
@@ -157,7 +163,7 @@
             reader.onload = () => {
               triggerDownload(
                 reader.result,
-                "voidpixlr-" + size + "x" + size + "-" + scale + "x.png"
+                "voidpixlr-" + width + "x" + height + "-" + scale + "x.png"
               );
               resolve({ ok: true, mode: "download" });
             };
@@ -180,11 +186,11 @@
 
   /* --- JSON ---------------------------------------------------------------------- */
 
-  IO.exportJSON = function exportJSON(size, palette, grid) {
-    const project = Q.buildProject(size, palette, grid);
+  IO.exportJSON = function exportJSON(width, height, palette, grid) {
+    const project = Q.buildProject(width, height, palette, grid);
     IO.downloadText(
       JSON.stringify(project),
-      "voidpixlr-" + size + "x" + size + ".json",
+      "voidpixlr-" + width + "x" + height + ".json",
       "application/json"
     );
     return project;
@@ -215,7 +221,8 @@
         ok: true,
         version: result.version,
         isV2: result.isV2,
-        size: result.size,
+        width: result.width,
+        height: result.height,
         palette: result.palette,
         pixels: data.pixels,
       };

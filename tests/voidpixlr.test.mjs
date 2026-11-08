@@ -301,11 +301,30 @@ check("switching between the built-ins leaves the art untouched", () => {
 });
 
 check("a colour that is missing snaps to the nearest, it is not lost", () => {
-  /* Downward: index 31 does not exist in the 16-colour palette, so it snaps
-     to the nearest colour rather than becoming empty. */
-  const grid = Int8Array.from([0, 5, 15, 31]);
-  const out = Q.remapGrid(grid, P.BUILTINS[2].colours, P.BUILTINS[0].colours);
-  assertDeep(Array.from(out), [0, 5, 15, 10], "the magenta snapped to magenta");
+  /* Downward: an index the 16-colour palette does not have snaps to the
+     nearest colour rather than becoming empty. */
+  const small = P.BUILTINS[0].colours;
+  const big = P.BUILTINS[2].colours;
+  const missing = 31;
+  const target = Q.hexToRgb(big[missing]);
+
+  let best = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < small.length; i += 1) {
+    const rgb = Q.hexToRgb(small[i]);
+    const distance =
+      (rgb[0] - target[0]) ** 2 +
+      (rgb[1] - target[1]) ** 2 +
+      (rgb[2] - target[2]) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+
+  const out = Q.remapGrid(Int8Array.from([missing]), big, small);
+  assert(out[0] >= 0, "the colour was lost");
+  assertEqual(out[0], best, "it snapped to the wrong colour");
 });
 
 check("a missing colour snaps to the nearest one", () => {
@@ -337,7 +356,7 @@ check("it round-trips at every size and colour count", () => {
       grid[i] = i % (size === 16 ? 16 : size) === 0 ? -1 : i % 64;
     }
     const text = Q.serialiseGrid(grid);
-    const back = Q.deserialiseGrid(text, size);
+    const back = Q.deserialiseGrid(text, size * size);
     assertDeep(Array.from(back), Array.from(grid), `round trip at ${size}`);
   }
 });
@@ -348,7 +367,7 @@ check("the serialised grid survives JSON without escapes", () => {
   assert(!/\\u/.test(json), "the JSON contains unicode escapes");
   const back = JSON.parse(json);
   assertDeep(
-    Array.from(Q.deserialiseGrid(back.grid, 2)),
+    Array.from(Q.deserialiseGrid(back.grid, 4)),
     Array.from(grid),
     "round trip through JSON"
   );
@@ -360,16 +379,27 @@ check("the serialised grid survives JSON without escapes", () => {
 
 console.log("\nproject files");
 
-check("a v2 project validates", () => {
-  const project = Q.buildProject(16, VOID_16, new Int8Array(256).fill(0));
+check("a project validates", () => {
+  const project = Q.buildProject(16, 16, VOID_16, new Int8Array(256).fill(0));
   const result = Q.validateProject(project);
   assert(result.ok, result.error);
-  assertEqual(result.version, 2, "version");
-  assert(result.isV2, "flagged as v2");
+  assertEqual(result.version, 3, "version");
+  assert(result.isV2, "flagged as a v2 file");
+  assertEqual(result.width, 16, "width");
+  assertEqual(result.height, 16, "height");
+});
+
+check("a rectangular project validates", () => {
+  const project = Q.buildProject(64, 16, VOID_16, new Int8Array(64 * 16).fill(0));
+  const result = Q.validateProject(project);
+  assert(result.ok, result.error);
+  assertEqual(result.width, 64, "width");
+  assertEqual(result.height, 16, "height");
 });
 
 check("a v1 project validates as v1", () => {
   const project = Q.buildLegacyProject(
+    16,
     16,
     VOID_16.slice(0, 12),
     new Int8Array(256).fill(0)
@@ -378,19 +408,47 @@ check("a v1 project validates as v1", () => {
   assert(result.ok, result.error);
   assertEqual(result.version, 1, "version");
   assert(!result.isV2, "flagged as v2");
+  assertEqual(result.width, 16, "width");
+});
+
+check("a v2 project still validates", () => {
+  const project = {
+    format: "voidpixlr",
+    version: 2,
+    size: 16,
+    palette: VOID_16,
+    pixels: new Array(16).fill(new Array(16).fill(0)),
+  };
+  const result = Q.validateProject(project);
+  assert(result.ok, result.error);
+  assertEqual(result.version, 2, "version");
+  assertEqual(result.width, 16, "width");
+  assertEqual(result.height, 16, "height");
 });
 
 check("the export shape is exactly as specified", () => {
   const grid = new Int8Array(16 * 16).fill(-1);
   grid[0] = 3;
-  const project = Q.buildProject(16, VOID_16, grid);
+  const project = Q.buildProject(16, 16, VOID_16, grid);
   assertEqual(project.format, "voidpixlr", "format");
-  assertEqual(project.version, 2, "version");
-  assertEqual(project.size, 16, "size");
+  assertEqual(project.version, 3, "version");
+  assertEqual(project.width, 16, "width");
+  assertEqual(project.height, 16, "height");
   assertEqual(project.palette.length, 16, "palette length");
   assertEqual(project.pixels.length, 16, "pixel rows");
   assertEqual(project.pixels[0][0], 3, "first pixel");
   assertEqual(project.pixels[0][1], -1, "second pixel");
+});
+
+check("a rectangular export carries both edges", () => {
+  const grid = new Int8Array(64 * 16).fill(-1);
+  grid[5] = 2;
+  const project = Q.buildProject(64, 16, VOID_16, grid);
+  assertEqual(project.width, 64, "width");
+  assertEqual(project.height, 16, "height");
+  assertEqual(project.pixels.length, 16, "pixel rows");
+  assertEqual(project.pixels[0].length, 64, "pixels in a row");
+  assertEqual(project.pixels[0][5], 2, "the painted pixel");
 });
 
 check("malformed projects are rejected", () => {
@@ -403,6 +461,8 @@ check("malformed projects are rejected", () => {
     { size: 16, palette: VOID_16, pixels: new Array(16).fill(new Array(16).fill(0.5)) },
     { size: 16, palette: ["nope"], pixels: new Array(16).fill(new Array(16).fill(0)) },
     { size: 16, palette: VOID_16, pixels: "not an array" },
+    { width: 16, height: 17, palette: VOID_16, pixels: [] },
+    { width: 64, height: 16, palette: VOID_16, pixels: new Array(32).fill(new Array(64).fill(0)) },
   ];
   bad[3].pixels[0][0] = -2;
   bad[0].pixels = new Array(16).fill(new Array(16).fill(0));
@@ -415,6 +475,7 @@ check("malformed projects are rejected", () => {
 check("a palette over 64 colours is rejected", () => {
   const project = Q.buildProject(
     16,
+    16,
     new Array(65).fill("#ffffff"),
     new Int8Array(256).fill(0)
   );
@@ -422,11 +483,11 @@ check("a palette over 64 colours is rejected", () => {
   assert(!result.ok, "accepted 65 colours");
 });
 
-check("a v2 file with the wrong version is rejected", () => {
-  const project = Q.buildProject(16, VOID_16, new Int8Array(256).fill(0));
-  project.version = 3;
+check("a project with the wrong version is rejected", () => {
+  const project = Q.buildProject(16, 16, VOID_16, new Int8Array(256).fill(0));
+  project.version = 9;
   const result = Q.validateProject(project);
-  assert(!result.ok, "accepted version 3");
+  assert(!result.ok, "accepted version 9");
 });
 
 /* ==========================================================================
@@ -642,21 +703,22 @@ function geometryFor(cells, imageSize) {
 
 check("the area average is the mean of the covered pixels", () => {
   const image = makeImage(16, 16, (x) => (x < 8 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
-  const sample = Q.sampleGrid(image, 2, geometryFor(2, 16), "average");
-  assertEqual(sample.size, 2, "size");
+  const sample = Q.sampleGrid(image, 2, 2, geometryFor(2, 16), "average");
+  assertEqual(sample.width, 2, "width");
+  assertEqual(sample.height, 2, "height");
   assertClose(sample.cells[0], 0, 0.5, "the first cell is black");
   assertClose(sample.cells[3], 255, 0.5, "the second cell is white");
 });
 
 check("the average of a mixed cell is the mean of its two halves", () => {
   const image = makeImage(16, 16, (x) => (x < 8 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
-  const sample = Q.sampleGrid(image, 1, geometryFor(1, 16), "average");
+  const sample = Q.sampleGrid(image, 1, 1, geometryFor(1, 16), "average");
   assertClose(sample.cells[0], 127.5, 1, "the mean");
 });
 
 check("nearest takes one sample at the cell centre", () => {
   const image = makeImage(16, 16, (x) => (x < 8 ? [10, 20, 30, 255] : [200, 210, 220, 255]));
-  const sample = Q.sampleGrid(image, 2, geometryFor(2, 16), "nearest");
+  const sample = Q.sampleGrid(image, 2, 2, geometryFor(2, 16), "nearest");
   assertClose(sample.cells[0], 10, 0.5, "the first cell");
   assertClose(sample.cells[3], 200, 0.5, "the second cell");
 });
@@ -664,7 +726,7 @@ check("nearest takes one sample at the cell centre", () => {
 check("a cell that lies off the image is empty", () => {
   const image = makeImage(4, 4, () => [255, 255, 255, 255]);
   const geometry = { ...geometryFor(2, 16), panX: 100 };
-  const sample = Q.sampleGrid(image, 2, geometry, "average");
+  const sample = Q.sampleGrid(image, 2, 2, geometry, "average");
   assertEqual(sample.alpha[0], 0, "alpha");
   assertEqual(sample.alpha[3], 0, "alpha");
 });
@@ -673,21 +735,44 @@ check("a transparent pixel contributes nothing to the average", () => {
   const image = makeImage(2, 2, (x) =>
     x === 0 ? [255, 255, 255, 255] : [0, 0, 0, 0]
   );
-  const sample = Q.sampleGrid(image, 1, geometryFor(1, 2), "average");
+  const sample = Q.sampleGrid(image, 1, 1, geometryFor(1, 2), "average");
   assertClose(sample.cells[0], 255, 1, "the opaque pixel won");
 });
 
 check("a fully transparent cell is empty", () => {
   const image = makeImage(4, 4, () => [10, 10, 10, 0]);
-  const sample = Q.sampleGrid(image, 1, geometryFor(1, 4), "average");
+  const sample = Q.sampleGrid(image, 1, 1, geometryFor(1, 4), "average");
   assertEqual(sample.alpha[0], 0, "alpha");
 });
 
 check("the sampled pixels feed the generator", () => {
   const image = makeImage(16, 16, (x, y) => [(x * 16) % 256, (y * 16) % 256, 128, 255]);
-  const sample = Q.sampleGrid(image, 4, geometryFor(4, 16), "average");
+  const sample = Q.sampleGrid(image, 4, 4, geometryFor(4, 16), "average");
   const pixels = Q.sampleToPixels(sample);
   assertEqual(pixels.length, 4 * 4 * 3, "pixel count");
+});
+
+check("a rectangular grid samples every cell of every row", () => {
+  /* Four columns, two rows: the row stride is the width, not the height. */
+  const image = makeImage(16, 8, (x, y) => [x * 16, y * 32, 0, 255]);
+  const geometry = {
+    originX: 0,
+    originY: 0,
+    cellPx: 4,
+    cellPxY: 4,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+  };
+  const sample = Q.sampleGrid(image, 4, 2, geometry, "average");
+  assertEqual(sample.width, 4, "width");
+  assertEqual(sample.height, 2, "height");
+  assertEqual(sample.cells.length, 4 * 2 * 3, "the cell count");
+  /* The second row is the one that proves the stride: its green channel is
+     the second half of the image, not the second column. */
+  assertClose(sample.cells[(4 * 0 + 0) * 3 + 1], 48, 2, "the first row");
+  assertClose(sample.cells[(4 * 1 + 0) * 3 + 1], 176, 2, "the second row");
+  assertClose(sample.cells[(4 * 0 + 3) * 3], 216, 2, "the first row, last column");
 });
 
 /* ==========================================================================
@@ -707,7 +792,7 @@ function gradientSample(size) {
       cells[i * 3 + 2] = 128;
     }
   }
-  return { cells, alpha, size };
+  return { cells, alpha, width: size, height: size };
 }
 
 check("flat matches each cell to the nearest colour", () => {
@@ -962,39 +1047,40 @@ check("undo returns the previous state and redo returns it again", () => {
   const history = H.create(50);
   /* A snapshot is the state *before* an edit, so the stack holds the state
      to come back to. */
-  const beforeFirst = { size: 16, grid: Int8Array.from([1, 1, 1, 1]) };
-  const beforeSecond = { size: 16, grid: Int8Array.from([2, 2, 2, 2]) };
+  const beforeFirst = { width: 16, height: 16, grid: Int8Array.from([1, 1, 1, 1]) };
+  const beforeSecond = { width: 16, height: 16, grid: Int8Array.from([2, 2, 2, 2]) };
   history.push(beforeFirst);
   history.push(beforeSecond);
 
-  const undone = history.undo({ size: 16, grid: Int8Array.from([3, 3, 3, 3]) });
+  const undone = history.undo({ width: 16, height: 16, grid: Int8Array.from([3, 3, 3, 3]) });
   assertDeep(Array.from(undone.grid), [2, 2, 2, 2], "the undone grid");
-  assertEqual(undone.size, 16, "the undone size");
+  assertEqual(undone.width, 16, "the undone width");
+  assertEqual(undone.height, 16, "the undone height");
   assert(history.canRedo, "redo is unavailable");
 
-  const redone = history.redo({ size: 16, grid: Int8Array.from([2, 2, 2, 2]) });
+  const redone = history.redo({ width: 16, height: 16, grid: Int8Array.from([2, 2, 2, 2]) });
   assertDeep(Array.from(redone.grid), [3, 3, 3, 3], "the redone grid");
 });
 
 check("undo on an empty stack returns nothing", () => {
   const history = H.create(50);
-  assertEqual(history.undo({ size: 16, grid: new Int8Array(4) }), null, "undo");
-  assertEqual(history.redo({ size: 16, grid: new Int8Array(4) }), null, "redo");
+  assertEqual(history.undo({ width: 16, height: 16, grid: new Int8Array(4) }), null, "undo");
+  assertEqual(history.redo({ width: 16, height: 16, grid: new Int8Array(4) }), null, "redo");
 });
 
 check("a new edit clears the redo stack", () => {
   const history = H.create(50);
-  history.push({ size: 16, grid: new Int8Array(4) });
-  history.undo({ size: 16, grid: new Int8Array(4) });
+  history.push({ width: 16, height: 16, grid: new Int8Array(4) });
+  history.undo({ width: 16, height: 16, grid: new Int8Array(4) });
   assert(history.canRedo, "redo should be available");
-  history.push({ size: 16, grid: new Int8Array(4) });
+  history.push({ width: 16, height: 16, grid: new Int8Array(4) });
   assert(!history.canRedo, "redo should have been cleared");
 });
 
 check("the stack is capped at its depth", () => {
   const history = H.create(3);
   for (let i = 0; i < 10; i += 1) {
-    history.push({ size: 16, grid: Int8Array.from([i]) });
+    history.push({ width: 16, height: 16, grid: Int8Array.from([i]) });
   }
   assertEqual(history.undoCount, 3, "undo count");
 });
@@ -1002,7 +1088,7 @@ check("the stack is capped at its depth", () => {
 check("setDepth trims the history", () => {
   const history = H.create(50);
   for (let i = 0; i < 40; i += 1) {
-    history.push({ size: 16, grid: Int8Array.from([i]) });
+    history.push({ width: 16, height: 16, grid: Int8Array.from([i]) });
   }
   history.setDepth(20);
   assertEqual(history.undoCount, 20, "undo count after the trim");
@@ -1082,11 +1168,41 @@ check("the canvas round-trips through localStorage", () => {
   grid[0] = 0;
   grid[1] = 15;
   grid[2] = -1;
-  S.saveCanvas(16, VOID_16, grid);
+  S.saveCanvas(16, 16, VOID_16, grid);
   const loaded = S.loadCanvas();
-  assertEqual(loaded.size, 16, "size");
+  assertEqual(loaded.width, 16, "width");
+  assertEqual(loaded.height, 16, "height");
   assertDeep(Array.from(loaded.grid), Array.from(grid), "grid");
   assertEqual(loaded.palette.length, 16, "palette");
+});
+
+check("a rectangular canvas round-trips through localStorage", () => {
+  const grid = new Int8Array(64 * 16).fill(-1);
+  grid[9] = 3;
+  S.saveCanvas(64, 16, VOID_16, grid);
+  const loaded = S.loadCanvas();
+  assertEqual(loaded.width, 64, "width");
+  assertEqual(loaded.height, 16, "height");
+  assertEqual(loaded.grid.length, 64 * 16, "the grid length");
+  assertEqual(loaded.grid[9], 3, "the painted cell");
+});
+
+check("an older square autosave still loads", () => {
+  const grid = new Int8Array(16 * 16).fill(-1);
+  grid[0] = 1;
+  sandbox.localStorage.setItem(
+    S.KEYS.canvas,
+    JSON.stringify({
+      size: 16,
+      palette: VOID_16,
+      grid: Q.serialiseGrid(grid),
+    })
+  );
+  const loaded = S.loadCanvas();
+  assert(loaded, "the old autosave was thrown away");
+  assertEqual(loaded.width, 16, "width");
+  assertEqual(loaded.height, 16, "height");
+  assertEqual(loaded.grid.length, 256, "the grid length");
 });
 
 check("a corrupt autosave is discarded, not fatal", () => {
@@ -1396,6 +1512,262 @@ check("the CSP test server sends the real shared headers", () => {
 
 /* --- the UI fixes ---------------------------------------------------------- */
 
+check("the canvas has an X and a Y, and a lock between them", () => {
+  const markup = read("index.html");
+  const app = read("js/app.js");
+
+  assert(markup.includes('id="size-x"'), "there is no X dropdown");
+  assert(markup.includes('id="size-y"'), "there is no Y dropdown");
+  assert(markup.includes('id="size-lock"'), "there is no lock button");
+
+  /* The dropdowns are filled from the allowed sizes, so they cannot offer
+     a size the app cannot draw. */
+  assert(
+    /function fillSizes[\s\S]{0,600}Q\.ALLOWED_SIZES/.test(app),
+    "the size dropdowns are not filled from the allowed sizes",
+  );
+
+  /* The lock is a real toggle, and it is remembered. */
+  assert(app.includes("state.sizeLocked"), "there is no lock state");
+  assert(
+    /lock\.addEventListener[\s\S]{0,400}state\.sizeLocked = !state\.sizeLocked/.test(app),
+    "the lock button does not toggle",
+  );
+  assert(
+    app.includes("prefs.sizeLocked = state.sizeLocked"),
+    "the lock state is not saved",
+  );
+});
+
+check("the allowed sizes run from 16 to 512", () => {
+  assertEqual(Q.ALLOWED_SIZES.join(","), "16,32,64,128,256,512", "the sizes");
+});
+
+check("a locked canvas is square and an unlocked one is not", () => {
+  const app = read("js/app.js");
+  /* Linked, the two edges are one number; separate, each is its own. */
+  assert(
+    /if \(state\.sizeLocked\) requestResize\(value, value\)/.test(app),
+    "the lock does not tie X and Y together",
+  );
+  assert(
+    /else requestResize\(value, VP\.canvas\.state\.height\)/.test(app),
+    "an unlocked X still moves Y",
+  );
+  assert(
+    /else requestResize\(VP\.canvas\.state\.width, value\)/.test(app),
+    "an unlocked Y still moves X",
+  );
+});
+
+check("the canvas is rectangular all the way down", () => {
+  const canvas = read("js/canvas.js");
+  const quantise = read("js/quantise.js");
+  const io = read("js/io.js");
+
+  /* The state is a width and a height, not one size. */
+  assert(/width: 16,\s*\n\s*height: 16,/.test(canvas), "the canvas has no width and height");
+  assert(!/state\.size\b/.test(canvas), "the canvas still has a single size");
+
+  /* The grid is indexed by a row stride, not by a square. */
+  assert(/row \* width \+ col/.test(canvas), "the grid is still indexed as a square");
+  assert(
+    /Q\.sampleGrid = function sampleGrid\(source, width, height/.test(quantise),
+    "the sampler still takes one size",
+  );
+
+  /* The export follows both edges. */
+  assert(
+    /IO\.exportPNG = function exportPNG\(width, height/.test(io),
+    "the PNG export still takes one size",
+  );
+  assert(
+    /IO\.buildProject|buildProject\(width, height/.test(quantise),
+    "the project file still carries one size",
+  );
+});
+
+check("there is one art canvas, and the workspace shares it", () => {
+  const markup = read("index.html");
+  const workspace = read("js/workspace.js");
+  const canvas = read("js/canvas.js");
+
+  /* One canvas element for the artwork. The workspace used to have a
+     second one — a copy of the art at a different scale — and the two
+     modes kept their own. */
+  const artCanvases = [...markup.matchAll(/<canvas[^>]*id="([^"]+)"/g)].map((m) => m[1]);
+  assertEqual(
+    artCanvases.filter((id) => id === "art-canvas").length,
+    1,
+    "there is more than one art canvas",
+  );
+  assert(!markup.includes('id="preview-pane"'), "the workspace still has its own preview canvas");
+
+  /* The live conversion goes onto that canvas, as a layer. */
+  assert(
+    /C\.setPreview = function setPreview/.test(canvas),
+    "the canvas has no preview layer",
+  );
+  assert(
+    /VP\.canvas\.setPreview\(result/.test(workspace),
+    "the workspace does not draw the live conversion on the canvas",
+  );
+  assert(
+    /VP\.canvas\.clearPreview\(\)/.test(workspace),
+    "the workspace does not take the preview off the canvas",
+  );
+});
+
+check("the two panes zoom independently", () => {
+  const markup = read("index.html");
+  const workspace = read("js/workspace.js");
+  const app = read("js/app.js");
+
+  assert(markup.includes('id="ws-zoom"'), "the source pane has no zoom slider");
+  assert(markup.includes('id="canvas-zoom"'), "the canvas has no zoom slider");
+
+  /* The source's zoom is the workspace's own state; the canvas's is the
+     canvas's own. Neither one writes to the other. */
+  assert(
+    /state\.zoom = next/.test(workspace),
+    "the source zoom is not the workspace's own",
+  );
+  assert(
+    !/VP\.canvas\.setScale/.test(workspace),
+    "the workspace moves the canvas's zoom",
+  );
+  assert(
+    /setZoom\(VP\.canvas\.scaleFromSlider/.test(app),
+    "the canvas zoom slider does not drive the canvas",
+  );
+  assert(
+    !/function setZoom[\s\S]{0,400}VP\.workspace/.test(app),
+    "the canvas zoom moves the source's zoom",
+  );
+  assert(
+    !/VP\.workspace\.state\.zoom\s*=/.test(workspace),
+    "the workspace writes to somebody else's zoom",
+  );
+});
+
+check("the workspace converts into the canvas's own size", () => {
+  const workspace = read("js/workspace.js");
+
+  /* One size, one grid. The workspace used to carry a size of its own,
+     which was a second answer to the same question. */
+  assert(
+    /function gridSize\(\)[\s\S]{0,300}VP\.canvas\.state\.width/.test(workspace),
+    "the workspace has a size of its own",
+  );
+  assert(
+    !/convertSize/.test(workspace),
+    "the workspace still keeps a separate convert size",
+  );
+});
+
+check("the built-in palettes are balanced across the hue wheel", () => {
+  /* The complaint that started this: every built-in had one red and one
+     blue, while some other hue had four. The rule is that every hue family
+     has the same depth in every built-in. */
+  const expected = { 16: 1, 32: 2, 64: 4 };
+
+  for (const builtin of P.BUILTINS) {
+    const counts = P.hueCoverage(builtin.colours);
+    const depth = expected[builtin.size];
+
+    for (const family of P.HUE_FAMILIES) {
+      assertEqual(
+        counts[family.name],
+        depth,
+        `${builtin.name}: ${family.name} has ${counts[family.name]}, expected ${depth}`,
+      );
+    }
+
+    /* The neutrals fill the rest, and they are never zero — a palette with
+       no black or no white cannot draw an outline. */
+    assert(
+      counts.neutral > 0,
+      `${builtin.name} has no neutral colours at all`,
+    );
+  }
+});
+
+check("the built-in palettes grow by whole families", () => {
+  /* Every family that the 16 has, the 32 has; every family the 32 has, the
+     64 has. A hue may not appear out of nowhere in the bigger palette. */
+  const byName = {};
+  for (const builtin of P.BUILTINS) byName[builtin.size] = builtin;
+
+  for (const [small, big] of [[16, 32], [32, 64]]) {
+    const smallCounts = P.hueCoverage(byName[small].colours);
+    const bigCounts = P.hueCoverage(byName[big].colours);
+    for (const family of P.HUE_FAMILIES) {
+      assert(
+        bigCounts[family.name] >= smallCounts[family.name],
+        `${byName[big].name} lost the ${family.name} family`,
+      );
+    }
+    assert(
+      bigCounts.neutral >= smallCounts.neutral,
+      `${byName[big].name} lost its neutrals`,
+    );
+  }
+});
+
+check("every built-in colour is a real colour", () => {
+  for (const builtin of P.BUILTINS) {
+    for (const hex of builtin.colours) {
+      assert(/^#[0-9a-f]{6}$/.test(hex), `${builtin.name} has a bad colour: ${hex}`);
+    }
+    /* No colour is repeated inside a palette: a duplicate is a wasted slot,
+       and the grid serialiser only has 64 codes to give away. */
+    assertEqual(
+      new Set(builtin.colours).size,
+      builtin.colours.length,
+      `${builtin.name} has a repeated colour`,
+    );
+  }
+});
+
+check("the built-in palettes are nested", () => {
+  assert(P.builtinsAreNested(), "the built-ins are not nested");
+  const byName = {};
+  for (const builtin of P.BUILTINS) byName[builtin.size] = builtin;
+  for (let i = 0; i < 16; i += 1) {
+    assertEqual(byName[32].colours[i], byName[16].colours[i], `the 32 at ${i}`);
+    assertEqual(byName[64].colours[i], byName[16].colours[i], `the 64 at ${i}`);
+  }
+});
+
+check("the spec's palette tables match the build", () => {
+  /* The specification carries the palette tables. If they drift away from
+     the code, the spec stops being the source of truth — so they are
+     checked, not trusted. */
+  const spec = read("project.md");
+  const source = read("js/palette.js");
+
+  const block = source.slice(
+    source.indexOf("const VOID_16"),
+    source.indexOf("const P = (VP.palette = {})")
+  );
+  const code = [...block.matchAll(/"(#[0-9a-f]{6})"/g)].map((m) => m[1]);
+
+  const tables = spec.slice(
+    spec.indexOf("#### Void Palette (16)"),
+    spec.indexOf("### 5.2 Custom palettes")
+  );
+  const rows = [...tables.matchAll(/\|\s*(\d+)\s*\|\s*`(#[0-9a-f]{6})`/g)];
+  const documented = rows
+    .map((m) => [Number(m[1]), m[2]])
+    .sort((a, b) => a[0] - b[0])
+    .map((pair) => pair[1]);
+
+  assertEqual(documented.length, code.length, "the number of documented colours");
+  for (let i = 0; i < code.length; i += 1) {
+    assertEqual(documented[i], code[i], `colour ${i}`);
+  }
+});
+
 check("a loaded photo switches the reference on", () => {
   /* The reference loaded but stayed in mode "off", so the canvas never
      changed: the user loaded an image and saw nothing, and concluded the
@@ -1446,12 +1818,23 @@ check("the zoom follows the canvas size", () => {
 check("the zoom always lands on a step", () => {
   const canvas = read("js/canvas.js");
   assert(
-    /const SCALES = \[4, 8, 16, 32\]/.test(canvas),
+    /const SCALES = \[1, 2, 4, 8, 16, 32, 64\]/.test(canvas),
     "the zoom steps are not defined",
   );
   assert(
-    /C\.fitScale = function[\s\S]{0,400}SCALES\[i\]/.test(canvas),
+    /C\.fitScale = function[\s\S]{0,600}SCALES\[i\]/.test(canvas),
     "fitScale does not snap to a step",
+  );
+  /* The slider is continuous, but it must not be able to produce a scale
+     the canvas cannot draw: the mapping goes through the same clamp the
+     button steps use. */
+  assert(
+    /C\.scaleFromSlider[\s\S]{0,400}clampScale/.test(canvas),
+    "the zoom slider does not clamp",
+  );
+  assert(
+    /C\.sliderFromScale[\s\S]{0,600}Math\.log\(MAX_SCALE\)/.test(canvas),
+    "the zoom slider is not logarithmic",
   );
 });
 
@@ -1589,14 +1972,25 @@ check("every slider has a reset button", () => {
   );
   assert(sliders.length >= 12, `only ${sliders.length} sliders found in the markup`);
 
+  /* The two zoom sliders are framing controls, not adjustments: their
+     "normal" is the Fit button beside them, and that is what the test
+     below checks for them instead. */
+  const zoomSliders = ["ws-zoom", "canvas-zoom"];
+
   /* The workspace sliders are covered by attachReset calls, one per slider. */
   for (const id of sliders) {
     if (id === "reference-opacity") continue;
+    if (zoomSliders.includes(id)) continue;
     assert(
       workspace.includes(`attachReset(document.getElementById("${id}")`),
       `the ${id} slider has no reset button`,
     );
   }
+
+  /* And each zoom slider has a Fit button of its own, so it can always be
+     put back. */
+  assert(markup.includes('id="ws-fit"'), "the source zoom has no fit button");
+  assert(markup.includes('id="canvas-fit"'), "the canvas zoom has no fit button");
 
   /* And the one in the reference strip, which the app wires up. */
   const app = read("js/app.js");

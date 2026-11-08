@@ -183,22 +183,54 @@ def main() -> int:
         firefox.set_window_rect(args.width, args.height)
         firefox.navigate(f"{args.base}/")
         time.sleep(0.7)
-        for size in (16, 32, 64, 128, 256):
+        for size in (16, 32, 64, 128, 256, 512):
             firefox.execute_script(
-                f"document.getElementById('size-{size}').click();"
+                f"const x = document.getElementById('size-x');"
+                f"x.value = '{size}';"
+                f"x.dispatchEvent(new Event('change', {{bubbles: true}}));"
             )
             time.sleep(0.4)
             info = firefox.execute_script(
                 "const c = document.getElementById('art-canvas');"
                 "const r = document.getElementById('canvas-region');"
-                "return {size: VP.canvas.state.size, scale: VP.canvas.state.scale,"
+                "return {size: VP.canvas.state.width + '×' + VP.canvas.state.height,"
+                " scale: VP.canvas.state.scale,"
                 " css: Math.round(c.getBoundingClientRect().width),"
                 " room: r.clientWidth,"
-                " readout: document.getElementById('zoom-readout').textContent};"
+                " readout: document.getElementById('canvas-zoom-readout').textContent};"
             )
             verdict = "fits" if info["css"] <= info["room"] else "OVERFLOWS THE PANE"
-            print(f"  {info['size']:>3}px  scale {info['scale']:>2}×  canvas {info['css']:>5}px"
+            print(f"  {info['size']:>9}  scale {info['scale']:>2}×  canvas {info['css']:>5}px"
                   f"  pane {info['room']:>4}px  readout {info['readout']!r}  → {verdict}")
+
+        # --- a rectangular canvas ---
+        report("a rectangular canvas")
+        firefox.execute_script(
+            "document.getElementById('size-lock').click();"
+        )
+        time.sleep(0.3)
+        firefox.execute_script(
+            "const x = document.getElementById('size-x');"
+            "x.value = '64';"
+            "x.dispatchEvent(new Event('change', {bubbles: true}));"
+            "const y = document.getElementById('size-y');"
+            "y.value = '16';"
+            "y.dispatchEvent(new Event('change', {bubbles: true}));"
+        )
+        time.sleep(0.4)
+        rect = firefox.execute_script(
+            "const c = document.getElementById('art-canvas');"
+            "return {width: VP.canvas.state.width, height: VP.canvas.state.height,"
+            " cells: VP.canvas.grid.length,"
+            " css: Math.round(c.getBoundingClientRect().width) + '×' +"
+            " Math.round(c.getBoundingClientRect().height),"
+            " x: document.getElementById('size-x').value,"
+            " y: document.getElementById('size-y').value,"
+            " lock: document.getElementById('size-lock').textContent};"
+        )
+        print(f"  canvas   : {rect['width']}×{rect['height']} ({rect['cells']} cells)")
+        print(f"  dropdowns: X={rect['x']} Y={rect['y']}  lock={rect['lock']!r}")
+        print(f"  on screen: {rect['css']}")
 
         # --- the image upload ---
         report("loading a real image file")

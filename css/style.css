@@ -489,16 +489,24 @@ input[type="color"]::-moz-color-swatch {
 
 /* ── The centre ────────────────────────────────────────────────────────────── */
 
+/* Three columns in the Image mode — the controls, the photo, the canvas —
+   and one in the Draw mode. The canvas is always the last of them, so the
+   layout never reorders itself under the user. */
 .centre {
   position: relative;
+  display: flex;
+  align-items: stretch;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
 .canvas-view {
-  position: absolute;
-  inset: 0;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .canvas-view[hidden] {
@@ -513,6 +521,41 @@ input[type="color"]::-moz-color-swatch {
   align-items: center;
   justify-content: center;
   padding: 16px;
+}
+
+/* The pane header: a label and the pane's own tools. Each pane has its own
+   zoom, and neither one moves the other. */
+.pane-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.pane-tools input[type="range"] {
+  width: 120px;
+  flex: 0 0 120px;
+}
+
+.pane-tools .btn {
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* The X and Y size dropdowns, and the lock between them. */
+.size-field {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.size-select {
+  width: auto;
+  min-width: 58px;
+  padding: 3px 4px;
+  font-size: 11px;
 }
 
 .art-canvas {
@@ -553,11 +596,12 @@ body.is-drop-target .art-canvas {
 
 /* ── The Image workspace ───────────────────────────────────────────────────── */
 
+/* The controls of the Image mode. They are the first column of the centre,
+   not a panel that covers it. */
 .workspace {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: 268px minmax(0, 1fr);
+  flex: 0 0 268px;
+  display: flex;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -566,6 +610,7 @@ body.is-drop-target .art-canvas {
 }
 
 .ws-blocks {
+  flex: 1 1 auto;
   border-right: 1px solid rgba(79, 79, 255, 0.14);
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -616,6 +661,12 @@ body.is-drop-target .art-canvas {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
+}
+
+/* A note that sits on the same line as a readout. */
+.ws-note.inline-note {
+  margin: 0;
+  flex: 1 1 auto;
 }
 
 .ws-row {
@@ -694,15 +745,11 @@ body.is-drop-target .art-canvas {
   font-size: 11px;
 }
 
-.ws-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-}
-
+/* The source pane. It is a column of the centre, beside the canvas, and it
+   has its own zoom. */
 .ws-pane {
   position: relative;
+  flex: 1 1 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
@@ -711,8 +758,8 @@ body.is-drop-target .art-canvas {
   overflow: hidden;
 }
 
-.ws-pane:last-child {
-  border-right: none;
+.ws-pane[hidden] {
+  display: none;
 }
 
 /* The pane's own header row. The label used to float over the canvas, and
@@ -723,6 +770,7 @@ body.is-drop-target .art-canvas {
   min-height: 24px;
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .ws-pane canvas {

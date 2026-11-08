@@ -1,13 +1,17 @@
 /* ==========================================================================
    VoidPixlr — workspace.js
    --------------------------------------------------------------------------
-   The Image workspace: a mode, not a modal. It replaces the canvas view in
-   the centre region and holds three blocks — SOURCE, PALETTE, CONVERT —
-   beside the source pane and the live result.
+   The Image workspace: a mode, not a modal. It adds the SOURCE block beside
+   the canvas, and the canvas itself becomes the live result — there is no
+   second art canvas and no second grid.
 
    The framing is pan and zoom under a fixed, screen-anchored grid overlay.
    There is no crop. The grid decides what will be converted; the framing
    decides what part of the photo it covers and at what detail.
+
+   The source pane and the canvas have their own zoom, and neither one moves
+   the other. Zooming the photo does not zoom the pixel art; zooming the
+   pixel art does not zoom the photo.
 
    Everything is live. Moving a slider re-samples the grid and re-matches it
    to the palette while the control is moving, in a reduced quality tier, and
@@ -25,8 +29,14 @@
      move when the image moves. */
   const OVERLAY_INSET = 8;
 
-  /* The preview is computed at up to 64x64 while a control is moving. */
+  /* The preview is computed at up to 64 cells on the long edge while a
+     control is moving. */
   const PREVIEW_MAX = 64;
+
+  /* The source pane's zoom range: the photo can be pulled right back or
+     pushed in until its own pixels are visible. */
+  const SOURCE_ZOOM_MIN = 0.05;
+  const SOURCE_ZOOM_MAX = 32;
 
   const state = {
     open: false,
@@ -34,7 +44,6 @@
     panY: 0,
     zoom: 1,
     cellPx: 16,
-    convertSize: 32,
     sampleMethod: "average",
     matchMethod: "flat",
     extractCount: 32,
@@ -50,6 +59,13 @@
 
   W.state = state;
 
+  /* The grid the workspace converts into: the canvas's own size. One size,
+     one grid — the Draw mode and the Image mode agree on what the artwork
+     is, and the workspace's target is never a second, separate thing. */
+  function gridSize() {
+    return { width: VP.canvas.state.width, height: VP.canvas.state.height };
+  }
+
   /* --- DOM handles ------------------------------------------------------------ */
 
   const el = {};
@@ -57,7 +73,8 @@
   function grab() {
     el.workspace = document.getElementById("workspace");
     el.source = document.getElementById("source-pane");
-    el.preview = document.getElementById("preview-pane");
+    el.sourcePane = document.getElementById("ws-source-pane");
+    el.zoomSlider = document.getElementById("ws-zoom");
     el.zoomReadout = document.getElementById("ws-zoom-readout");
     el.status = document.getElementById("ws-status");
     el.paletteStatus = document.getElementById("ws-palette-status");
@@ -65,6 +82,7 @@
     el.sourceEmpty = document.getElementById("ws-source-empty");
     el.tune = document.getElementById("ws-tune");
     el.targets = document.getElementById("ws-targets");
+    el.targetSize = document.getElementById("ws-target-size");
   }
 
   /* --- opening and closing ------------------------------------------------------ */
@@ -72,18 +90,24 @@
   W.open = function open() {
     state.open = true;
     if (el.workspace) el.workspace.hidden = false;
-    const canvasView = document.getElementById("canvas-view");
-    if (canvasView) canvasView.hidden = true;
+    if (el.sourcePane) el.sourcePane.hidden = false;
     W.resizeCanvases();
+    W.updateCellSize();
     W.fitSource();
+    /* The canvas just lost half its room. */
+    if (VP.app && VP.app.onLayoutChange) VP.app.onLayoutChange();
     W.refresh();
   };
 
   W.close = function close() {
     state.open = false;
     if (el.workspace) el.workspace.hidden = true;
-    const canvasView = document.getElementById("canvas-view");
-    if (canvasView) canvasView.hidden = false;
+    if (el.sourcePane) el.sourcePane.hidden = true;
+    /* The live conversion belongs to the Image mode. Closing it takes the
+       preview off the canvas, so the Draw mode shows the artwork and only
+       the artwork. */
+    VP.canvas.clearPreview();
+    if (VP.app && VP.app.onLayoutChange) VP.app.onLayoutChange();
     VP.canvas.composite();
   };
 
@@ -100,18 +124,17 @@
   /* --- the panes ------------------------------------------------------------------ */
 
   W.resizeCanvases = function resizeCanvases() {
-    for (const canvas of [el.source, el.preview]) {
-      if (!canvas) continue;
-      const parent = canvas.parentElement;
-      if (!parent) continue;
-      const dpr = root.devicePixelRatio || 1;
-      const width = parent.clientWidth;
-      const height = parent.clientHeight;
-      canvas.style.width = width + "px";
-      canvas.style.height = height + "px";
-      canvas.width = Math.max(1, Math.round(width * dpr));
-      canvas.height = Math.max(1, Math.round(height * dpr));
-    }
+    const canvas = el.source;
+    if (!canvas) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+    const dpr = root.devicePixelRatio || 1;
+    const width = parent.clientWidth;
+    const height = parent.clientHeight;
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
     W.draw();
   };
 
@@ -125,15 +148,17 @@
     if (!pane) return;
     const width = pane.clientWidth;
     const height = pane.clientHeight;
-    const fitted = Math.floor(Math.min(width, height) / state.convertSize);
+    const grid = gridSize();
+    const fitted = Math.floor(Math.min(width / grid.width, height / grid.height));
     state.cellPx = Math.min(32, Math.max(4, fitted || 16));
   };
 
-  function geometry(cellPx) {
+  function geometry(cellPx, cellPxY) {
     return {
       originX: OVERLAY_INSET,
       originY: OVERLAY_INSET,
       cellPx,
+      cellPxY: cellPxY === undefined ? cellPx : cellPxY,
       zoom: state.zoom,
       panX: state.panX,
       panY: state.panY,
@@ -168,30 +193,35 @@
       );
     }
 
+    const grid = gridSize();
+    const overlayWidth = grid.width * state.cellPx;
+    const overlayHeight = grid.height * state.cellPx;
+    const overlayRight = OVERLAY_INSET + overlayWidth;
+    const overlayBottom = OVERLAY_INSET + overlayHeight;
+
     /* The area outside the overlay is washed out, so the active region is
        unambiguous. The wash is drawn as four rectangles around the overlay
        rather than over the whole pane and then erased, because erasing would
        take the image with it. */
-    const overlay = state.convertSize * state.cellPx;
-    const overlayRight = OVERLAY_INSET + overlay;
-    const overlayBottom = OVERLAY_INSET + overlay;
     context.fillStyle = "rgba(13,13,15,0.45)";
     context.fillRect(0, 0, width, OVERLAY_INSET);
     context.fillRect(0, overlayBottom, width, Math.max(0, height - overlayBottom));
-    context.fillRect(0, OVERLAY_INSET, OVERLAY_INSET, overlay);
-    context.fillRect(overlayRight, OVERLAY_INSET, Math.max(0, width - overlayRight), overlay);
+    context.fillRect(0, OVERLAY_INSET, OVERLAY_INSET, overlayHeight);
+    context.fillRect(overlayRight, OVERLAY_INSET, Math.max(0, width - overlayRight), overlayHeight);
 
     /* The grid overlay, in accent lines. */
     context.strokeStyle = "rgba(79,79,255,0.55)";
     context.lineWidth = 1;
     context.beginPath();
-    for (let i = 1; i < state.convertSize; i += 1) {
+    for (let i = 1; i < grid.width; i += 1) {
       const x = Math.round(OVERLAY_INSET + i * state.cellPx) + 0.5;
-      const y = Math.round(OVERLAY_INSET + i * state.cellPx) + 0.5;
       context.moveTo(x, OVERLAY_INSET);
-      context.lineTo(x, OVERLAY_INSET + overlay);
+      context.lineTo(x, OVERLAY_INSET + overlayHeight);
+    }
+    for (let i = 1; i < grid.height; i += 1) {
+      const y = Math.round(OVERLAY_INSET + i * state.cellPx) + 0.5;
       context.moveTo(OVERLAY_INSET, y);
-      context.lineTo(OVERLAY_INSET + overlay, y);
+      context.lineTo(OVERLAY_INSET + overlayWidth, y);
     }
     context.stroke();
 
@@ -199,66 +229,43 @@
     context.strokeRect(
       Math.round(OVERLAY_INSET) + 0.5,
       Math.round(OVERLAY_INSET) + 0.5,
-      overlay,
-      overlay
+      overlayWidth,
+      overlayHeight
     );
 
     if (el.sourceEmpty) el.sourceEmpty.hidden = !!image;
+    W.syncZoomControls();
+  };
+
+  /* --- the zoom controls ---------------------------------------------------------- */
+
+  /* The slider and the readout are two views of one number. Neither one
+     writes to the state directly: the slider is the input, the state is the
+     truth, and the readout is told what the truth is. */
+  W.syncZoomControls = function syncZoomControls() {
     if (el.zoomReadout) {
       el.zoomReadout.textContent = Math.round(state.zoom * 100) / 100 + "×";
     }
+    if (el.zoomSlider && document.activeElement !== el.zoomSlider) {
+      el.zoomSlider.value = String(zoomToSlider(state.zoom));
+    }
   };
 
-  /* --- drawing the result pane -------------------------------------------------------- */
+  function zoomToSlider(zoom) {
+    const value = Math.min(SOURCE_ZOOM_MAX, Math.max(SOURCE_ZOOM_MIN, zoom));
+    const t =
+      (Math.log(value) - Math.log(SOURCE_ZOOM_MIN)) /
+      (Math.log(SOURCE_ZOOM_MAX) - Math.log(SOURCE_ZOOM_MIN));
+    return Math.round(t * 100);
+  }
 
-  W.drawPreview = function drawPreview(result, size) {
-    const canvas = el.preview;
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-    const dpr = root.devicePixelRatio || 1;
-    const width = canvas.width / dpr;
-    const height = canvas.height / dpr;
-
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.fillStyle = "#0d0d0f";
-    context.fillRect(0, 0, width, height);
-
-    if (!result) {
-      context.fillStyle = "#7a7a82";
-      context.font = "12px Inter, system-ui, sans-serif";
-      context.fillText("no image loaded", 12, 20);
-      return;
-    }
-
-    const art = document.createElement("canvas");
-    art.width = size;
-    art.height = size;
-    const artContext = art.getContext("2d");
-    artContext.imageSmoothingEnabled = false;
-    artContext.clearRect(0, 0, size, size);
-
-    const palette = VP.palette.colours();
-    for (let i = 0; i < result.length; i += 1) {
-      const index = result[i];
-      if (index < 0) continue;
-      const hex = palette[index];
-      if (!hex) continue;
-      artContext.fillStyle = hex;
-      artContext.fillRect(i % size, Math.floor(i / size), 1, 1);
-    }
-
-    const scale = Math.max(
-      1,
-      Math.floor(Math.min(width, height) / size)
+  function sliderToZoom(value) {
+    const t = Math.min(1, Math.max(0, value / 100));
+    return Math.exp(
+      Math.log(SOURCE_ZOOM_MIN) +
+        t * (Math.log(SOURCE_ZOOM_MAX) - Math.log(SOURCE_ZOOM_MIN))
     );
-    const drawWidth = size * scale;
-    const drawHeight = size * scale;
-
-    context.imageSmoothingEnabled = false;
-    context.fillStyle = "#1a1a1f";
-    context.fillRect(0, 0, drawWidth, drawHeight);
-    context.drawImage(art, 0, 0, drawWidth, drawHeight);
-  };
+  }
 
   /* --- sampling -------------------------------------------------------------------- */
 
@@ -281,10 +288,33 @@
     const image = imageFor(fast);
     if (!image) return null;
 
-    const size = fast ? Math.min(state.convertSize, PREVIEW_MAX) : state.convertSize;
-    const cellPx = (state.convertSize * state.cellPx) / size;
+    const grid = gridSize();
+    let width = grid.width;
+    let height = grid.height;
+    let cellPxX = state.cellPx;
+    let cellPxY = state.cellPx;
 
-    return Q.sampleGrid(image, size, geometry(cellPx), state.sampleMethod);
+    if (fast) {
+      /* The reduced tier. Both axes are reduced together, and each sampled
+         cell is told how many screen pixels it now stands for, so the
+         reduced pass covers exactly the same region as the full one. */
+      const longest = Math.max(width, height);
+      if (longest > PREVIEW_MAX) {
+        const factor = longest / PREVIEW_MAX;
+        width = Math.max(1, Math.round(width / factor));
+        height = Math.max(1, Math.round(height / factor));
+        cellPxX = (grid.width * state.cellPx) / width;
+        cellPxY = (grid.height * state.cellPx) / height;
+      }
+    }
+
+    return Q.sampleGrid(
+      image,
+      width,
+      height,
+      geometry(cellPxX, cellPxY),
+      state.sampleMethod
+    );
   };
 
   function fullSample() {
@@ -304,16 +334,19 @@
   let fastHandle = null;
   let fullTimer = null;
 
+  /* The live conversion goes onto the canvas, as a layer over the artwork.
+     There is one art canvas in this app: the Image mode shows that same
+     canvas beside the photo, with the conversion drawn over it. */
   function runPreview(fast) {
     const sample = fast ? W.sample(true) : fullSample();
     if (!sample) {
-      W.drawPreview(null, state.convertSize);
+      VP.canvas.clearPreview();
       return;
     }
     const palette = VP.palette.colours();
     if (!palette.length) return;
     const result = Q.match(sample, Q.buildPaletteRgb(palette), state.matchMethod);
-    W.drawPreview(result, sample.size);
+    VP.canvas.setPreview(result, sample.width, sample.height);
   }
 
   /* The settle: bake the current adjustment into the full-resolution copy,
@@ -512,8 +545,8 @@
 
     const result = Q.match(sample, Q.buildPaletteRgb(palette), state.matchMethod);
 
-    if (W.onConvert) W.onConvert(result, state.convertSize, palette);
-    W.setStatus("converted " + state.convertSize + "×" + state.convertSize);
+    if (W.onConvert) W.onConvert(result, sample.width, sample.height);
+    W.setStatus("converted " + sample.width + "×" + sample.height);
     return true;
   };
 
@@ -522,11 +555,13 @@
   W.fitSource = function fitSource() {
     const image = drawableSource();
     if (!image) return;
-    const overlay = state.convertSize * state.cellPx;
-    const zoom = Math.min(overlay / image.width, overlay / image.height);
-    state.zoom = Math.max(0.05, Math.min(32, zoom));
-    state.panX = OVERLAY_INSET + overlay / 2 - (image.width * state.zoom) / 2;
-    state.panY = OVERLAY_INSET + overlay / 2 - (image.height * state.zoom) / 2;
+    const grid = gridSize();
+    const overlayWidth = grid.width * state.cellPx;
+    const overlayHeight = grid.height * state.cellPx;
+    const zoom = Math.min(overlayWidth / image.width, overlayHeight / image.height);
+    state.zoom = Math.max(SOURCE_ZOOM_MIN, Math.min(SOURCE_ZOOM_MAX, zoom));
+    state.panX = OVERLAY_INSET + overlayWidth / 2 - (image.width * state.zoom) / 2;
+    state.panY = OVERLAY_INSET + overlayHeight / 2 - (image.height * state.zoom) / 2;
     state.sampleDirty = true;
     W.draw();
   };
@@ -548,7 +583,7 @@
     const image = drawableSource();
     if (!image) return;
     const oldZoom = state.zoom;
-    const next = Math.max(0.05, Math.min(32, oldZoom * factor));
+    const next = Math.max(SOURCE_ZOOM_MIN, Math.min(SOURCE_ZOOM_MAX, oldZoom * factor));
     if (next === oldZoom) return;
 
     /* Anchor the zoom at the pointer: the source pixel under the cursor stays
@@ -609,12 +644,19 @@
   W.refresh = function refresh() {
     W.draw();
     W.updateLoadNote();
+    W.updateTargetSize();
     if (!VP.reference.hasImage()) {
-      W.drawPreview(null, state.convertSize);
+      VP.canvas.clearPreview();
       if (el.paletteStatus) el.paletteStatus.textContent = "";
       return;
     }
     W.requestPreview();
+  };
+
+  W.updateTargetSize = function updateTargetSize() {
+    if (!el.targetSize) return;
+    const grid = gridSize();
+    el.targetSize.textContent = grid.width + " × " + grid.height;
   };
 
   W.updateLoadNote = function updateLoadNote() {
@@ -688,6 +730,35 @@
       },
       { passive: false }
     );
+
+    /* The source's own zoom slider. It moves the photo and nothing else —
+       the canvas keeps the zoom it had. */
+    if (el.zoomSlider) {
+      el.zoomSlider.addEventListener("input", () => {
+        const image = drawableSource();
+        if (!image) return;
+        const oldZoom = state.zoom;
+        const next = sliderToZoom(parseFloat(el.zoomSlider.value));
+        if (next === oldZoom) return;
+
+        /* Keep the middle of the overlay where it was, so the slider zooms
+           the photo rather than sliding it away. */
+        const grid = gridSize();
+        const centreX = OVERLAY_INSET + (grid.width * state.cellPx) / 2;
+        const centreY = OVERLAY_INSET + (grid.height * state.cellPx) / 2;
+        const sourceX = (centreX - state.panX) / oldZoom;
+        const sourceY = (centreY - state.panY) / oldZoom;
+
+        state.zoom = next;
+        state.panX = centreX - sourceX * next;
+        state.panY = centreY - sourceY * next;
+
+        W.clampPan();
+        state.sampleDirty = true;
+        W.draw();
+        W.requestPreview();
+      });
+    }
   }
 
   function bindControls() {
@@ -696,8 +767,6 @@
       if (node) node.addEventListener(event, handler);
     };
 
-    on("ws-zoom-in", "click", () => W.zoomBy(1.25));
-    on("ws-zoom-out", "click", () => W.zoomBy(1 / 1.25));
     on("ws-fit", "click", () => {
       W.fitSource();
       W.requestPreview();
@@ -862,20 +931,6 @@
     }
 
     on("ws-convert", "click", () => W.convert());
-
-    for (const size of [16, 32, 64, 128, 256]) {
-      on("ws-size-" + size, "click", () => {
-        state.convertSize = size;
-        for (const other of [16, 32, 64, 128, 256]) {
-          const node = document.getElementById("ws-size-" + other);
-          if (node) node.classList.toggle("is-active", other === size);
-        }
-        W.updateCellSize();
-        W.fitSource();
-        W.invalidate();
-        W.commitPreview();
-      });
-    }
   }
 
   /* Marks the active button in a group of size buttons. */

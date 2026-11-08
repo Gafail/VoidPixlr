@@ -242,6 +242,38 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >   3. **The empty state in the workspace** said "press I" — a shortcut that
 >      existed but that nobody could see. It now says **click to load**, and
 >      it is a real button.
+>
+> - **r13 (2026-11-08)** — **the canvas is no longer forced to be square,
+>   the two modes share one canvas, and the palettes are balanced.**
+>
+>   1. **The canvas has an X and a Y** (§7.5, §6.1). The arbitrary
+>      square-only restriction is gone. The top bar carries two dropdowns —
+>      **X** and **Y** — each offering **16, 32, 64, 128, 256, 512**, never
+>      free text. A **lock** button ties them together: locked, they always
+>      match and the canvas is square; unlocked, they are two independent
+>      edges and the canvas can be a rectangle (64 × 16 is a valid sprite
+>      sheet row). Every buffer, grid index, export, autosave and undo
+>      snapshot now carries **both** edges.
+>   2. **There is one art canvas, and the Image mode shares it**
+>      (§4.6, §6.2). The workspace used to hold a *second* canvas that
+>      showed a copy of the result at a different scale, and the two modes
+>      each had their own size and their own zoom. The workspace now adds
+>      the **source pane** beside the canvas and the canvas itself becomes
+>      the live result: the conversion is a **layer over the artwork**, in
+>      the same canvas, drawn from the same grid. One size, one grid, one
+>      canvas.
+>   3. **Each pane zooms on its own** (§4.6, §6.4). The source pane and
+>      the canvas each have a **zoom slider**, and neither one moves the
+>      other. Zooming the photo does not zoom the pixel art.
+>   4. **The built-in palettes are balanced** (§5.1). Every one of them had
+>      a single red and a single blue while other hues had four — the
+>      palettes were arbitrary. The three built-ins are now built on
+>      **twelve hue families** (red, orange, yellow, lime, green, teal,
+>      cyan, azure, blue, indigo, violet, magenta), each with **one** step
+>      in the 16, **two** in the 32 and **four** in the 64. Every hue gets
+>      the same depth, and the ramps run dark to light with cool shadows
+>      and warm highlights. A **hue-coverage test** enforces the balance
+>      rather than asserting it.
 
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
@@ -380,7 +412,7 @@ Why the distinction is worth stating plainly:
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
   row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r12)
+- **Version:** 2.0 (revision r13)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
   10-minute doodles to serious sprite work and photo tracing.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -600,13 +632,22 @@ Same three-region shape as v1, denser. CSS grid: three rows (`top`, `center`,
 
 ### 4.1 Top Bar (~48px)
 - Wordmark `VoidPixlr`, text only, top-left.
-- Size buttons `16` `32` `64` `128` `256`.
+- `Load photo` — always visible; the one way in that is never hidden (§16.11).
+- **Size group: `X [▾]` `Y [▾]` and a lock button.**
+  - Each dropdown offers **16, 32, 64, 128, 256, 512**. Never free text: the
+    canvas is one of the allowed sizes or it is not a canvas this app draws.
+  - **Locked** (the default), X and Y always match and the canvas is square.
+    Changing either sets both.
+  - **Separate**, the two edges are independent and the canvas can be a
+    rectangle — a 64 × 16 sprite sheet row, a 16 × 128 banner.
+  - The lock button says which mode it is in: `linked` or `separate`.
 - Symmetry button, cycling `—` `⇋` `⇅` `⇔`.
-- Zoom control: `−` `[ 16× ]` `+` `Fit`.
 - Grid toggle `G`.
 - `Undo` / `Redo` buttons.
 - `Image` — toggles the **Image workspace** (§4.6).
-- `New` and `Resize` buttons, right side.
+
+The canvas's **zoom lives with the canvas**, not here: each pane owns its
+own zoom slider, and two controls for one value is duplication (§4.6).
 
 ### 4.1.1 Reference controls (second row, ~36px, right-aligned)
 
@@ -644,6 +685,20 @@ hidden entirely — the tool shows nothing it has nothing to show.
 - Grid lines drawn onto the canvas (not DOM), toggleable.
 - **Drop target:** dragging an image file over the canvas highlights the
   canvas border and shows `drop to reference`.
+- The canvas has a **header** — the word `Canvas`, a **zoom slider**, the
+  zoom readout and a `Fit` button. The header is a bar, not an overlay on
+  the artwork.
+
+### 4.3.1 The three columns of the Image mode
+
+The centre is one row of columns, and the canvas is always the last of
+them, so the layout never reorders itself under the user:
+
+    [ controls ] [ source ] [ canvas ]
+
+In the Draw mode the first two are hidden and the canvas has the room to
+itself. In the Image mode the controls, the photo and the canvas sit side
+by side — and the canvas is **the same canvas**, not a second one.
 
 ### 4.4 Bottom Bar (~48px)
 Left-aligned within the centre column: `Export PNG` · `Export JSON` ·
@@ -659,32 +714,46 @@ in v2 (the UI is legible enough without them). No logo image.
 
 ### 4.6 The Image workspace
 
-Toggled by the `Image` button in the top bar. It replaces the canvas view in
-the centre region with a three-step strip on the left of the centre area and a
-preview on the right. The palette sidebar stays visible, so palette changes
-are seen live while you work.
+Toggled by the `Image` button in the top bar. It does **not** replace the
+canvas: it adds the source pane and the control column *beside* the canvas,
+and the canvas becomes the live result. The palette sidebar stays visible, so
+palette changes are seen live while you work.
 
 ```
 ┌──────────────┬──────────────────────────────┬───────────────────┐
-│ SOURCE       │  source image, pannable and  │  converted result │
-│  zoom / pan  │  zoomable, with the fixed    │  (pixel art)      │
-│  adjustments │  grid overlay                │                   │
-├──────────────┤                              │                   │
+│ SOURCE       │  source image, pannable and  │  the canvas: the  │
+│  adjustments │  zoomable, with the fixed    │  artwork, with the │
+│              │  grid overlay                │  live conversion   │
+├──────────────┤                              │  drawn over it     │
 │ PALETTE      │                              │                   │
-│  extract     │                              │                   │
-│  tune        │                              │                   │
+│  extract     │                              │  zoom slider      │
+│  tune        │                              │  Fit              │
 ├──────────────┤                              │                   │
 │ CONVERT      │                              │                   │
-│  size/method │                              │                   │
+│  method      │                              │                   │
 └──────────────┴──────────────────────────────┴───────────────────┘
 ```
 
+**There is one art canvas.** The workspace used to hold a second canvas
+that showed a copy of the result at a different scale. That copy is gone:
+the live conversion is a **layer over the artwork in the same canvas** (§6.2),
+drawn from the same grid, at the canvas's own zoom. One size, one grid, one
+canvas — the Draw mode and the Image mode are two views of the same artwork,
+not two canvases that have to be kept in step.
+
+**Each pane zooms on its own.** The source pane and the canvas each have a
+**zoom slider** in their own header, and neither one moves the other.
+Zooming the photo does not zoom the pixel art. The sliders are logarithmic:
+the top of the range is where the detail is, and a linear slider would spend
+most of its travel on the two or three zoom levels nobody uses.
+
 **Block 1 — SOURCE.**
 
-- *Framing*: a zoom readout with `−` / `+`, plus `Fit` and `Pixel`. The pane
-  pans by dragging and zooms on the wheel (§8.7.3).
 - *Adjustments*: black point, white point, brightness, contrast, saturation,
   hue shift, greyscale, and an `Auto levels` button (§8.7.4).
+- *Framing* lives in the pane's header, with the thing it frames: a zoom
+  slider, the zoom readout, `Fit` and `Pixel`. The pane pans by dragging and
+  zooms on the wheel (§8.7.3).
 - The source pane draws the **adjusted** image, so what you see is what gets
   converted.
 
@@ -696,21 +765,23 @@ are seen live while you work.
   pixels that will be converted.
 - *Tune*: saturation, brightness, contrast, hue shift, posterise sliders, plus
   presets (§5.5). The swatches in the sidebar preview the tuned palette live,
-  and the pixel preview re-renders as you drag (§8.8.4). `Apply` writes it to
+  and the pixel result re-renders as you drag (§8.8.4). `Apply` writes it to
   the target palette; `Cancel` discards.
 
 **Block 3 — CONVERT.**
 
-- Grid size (the same 16/32/64/128/256 buttons).
+- *Target*: the canvas's own size, shown as a readout. **The workspace has
+  no size of its own** — the grid it converts into is the canvas's grid, so
+  there is one answer to "how big is the artwork", not two.
 - Sample method: `Average` / `Nearest` (§8.8.1).
 - Match method: `Flat` / `Bayer` / `Floyd` / `Clustered` (§8.8.2).
-- `Convert to canvas`.
+- `Apply to canvas`.
 
-The preview pane shows the **source with the target grid overlaid** beside the
-**converted result**, recomputed live (debounced) on every parameter change.
-
-**The workspace never touches the canvas** until `Convert to canvas` is
-pressed. That write is an ordinary, undoable canvas edit.
+The live result is drawn **over the artwork**, so the artwork underneath is
+still there while you work. `Apply to canvas` writes the result into the
+grid — an ordinary, undoable canvas edit — and takes the layer off again.
+Closing the workspace also takes the layer off, so the Draw mode shows the
+artwork and only the artwork.
 
 ### Decision
 - Layout: CSS grid, `top` / `center` / `bottom` rows, `sidebar` / `main` columns.
@@ -721,7 +792,7 @@ pressed. That write is an ordinary, undoable canvas edit.
 - **The Image workspace is a mode, not a modal.** It is a third centre-region
   view toggled from the top bar; the canvas and the palette sidebar remain
   visible or return to their previous state when it closes.
-- **The workspace is non-destructive until `Convert to canvas`.** Every stage
+- **The workspace is non-destructive until `Apply to canvas`.** Every stage
   is a preview.
 - The swatch grid is 4 columns and scrolls; the sidebar is a fixed 200 px.
 - "Forget everything" lives in the bottom bar as a dimmed text button, not in
@@ -744,60 +815,86 @@ Three built-ins at **16, 32 and 64** colours. They are **nested**: the first
 Void Full are identical to Void Expanded. Switching between them therefore
 changes nothing about existing art (§5.2).
 
+#### The twelve hue families
+
+The built-ins are built on **twelve hue families** — red, orange, yellow,
+lime, green, teal, cyan, azure, blue, indigo, violet, magenta — and a
+neutral family of greys and earths.
+
+**Every family has the same depth in every built-in.** One step in the 16,
+two in the 32, four in the 64. That is the whole point: the old palettes had
+a single red and a single blue while other hues had four, and a pixel artist
+cannot shade with that. A hue-coverage test (§16.12) enforces the balance,
+so it cannot drift back.
+
+Each ramp runs **dark to light**, and the shadows drift **cool** while the
+highlights drift **warm** — the same B-grading the good pixel-art palettes
+use, so a sprite lit from one side still reads correctly.
+
 #### Void Palette (16) — the everyday default
+
+Four neutrals, then the base step of every hue family.
 
 | Index | Hex | Name | | Index | Hex | Name |
 |------:|-----|------|-|------:|-----|------|
-| 0 | `#ffffff` | white | | 8 | `#4f4fff` | blue |
-| 1 | `#000000` | black | | 9 | `#a64fff` | purple |
-| 2 | `#7f7f7f` | mid gray | | 10 | `#ff4fff` | magenta |
-| 3 | `#ff4f4f` | red | | 11 | `#8b4513` | brown |
-| 4 | `#ffa64f` | orange | | 12 | `#0d0d0f` | void |
-| 5 | `#ffe44f` | yellow | | 13 | `#c8c8cc` | light gray |
-| 6 | `#4fff4f` | green | | 14 | `#2a2a33` | dark gray |
-| 7 | `#4fffff` | cyan | | 15 | `#e8b48a` | skin |
-
-v1's twelve are indices 0–11, unchanged. Indices 12–15 are new: the void and
-deep void so "empty-looking" can be drawn explicitly, a light and a dark gray
-for shading, and a skin tone.
+| 0 | `#0d0d0f` | void black | | 8 | `#2f9e44` | green |
+| 1 | `#2a2a33` | dark grey | | 9 | `#17a89a` | teal |
+| 2 | `#8b8b96` | mid grey | | 10 | `#12b5cc` | cyan |
+| 3 | `#ffffff` | white | | 11 | `#2f7fd6` | azure |
+| 4 | `#d1333a` | red | | 12 | `#3559d9` | blue |
+| 5 | `#e07a1f` | orange | | 13 | `#4f4fd9` | indigo |
+| 6 | `#d9b30a` | yellow | | 14 | `#7a3fd0` | violet |
+| 7 | `#8fc626` | lime | | 15 | `#c22fb8` | magenta |
 
 #### Void Expanded (32) — Void Palette plus 16 more
 
-Indices 0–15 as above, then:
+Indices 0–15 as above, then the **shadow step of every hue family**, then
+four more neutrals.
 
 | Index | Hex | Name | | Index | Hex | Name |
 |------:|-----|------|-|------:|-----|------|
-| 16 | `#14141a` | deep void | | 24 | `#20502f` | dark green |
-| 17 | `#3a3a44` | shadow gray | | 25 | `#8aff9a` | light green |
-| 18 | `#a8a8b0` | silver | | 26 | `#141c4f` | deepest blue |
-| 19 | `#f0f0f4` | near white | | 27 | `#1f2f7a` | dark blue |
-| 20 | `#5c1414` | deepest red | | 28 | `#8a9aff` | light blue |
-| 21 | `#8f2020` | dark red | | 29 | `#4a1440` | deepest magenta |
-| 22 | `#ff8a8a` | light red | | 30 | `#6b1f5c` | dark magenta |
-| 23 | `#143c1f` | deepest green | | 31 | `#ff8ae0` | light magenta |
+| 16 | `#4a0e14` | red shadow | | 24 | `#101c4f` | blue shadow |
+| 17 | `#5c2a00` | orange shadow | | 25 | `#1a1440` | indigo shadow |
+| 18 | `#5c4a00` | yellow shadow | | 26 | `#2a0f45` | violet shadow |
+| 19 | `#2e4a00` | lime shadow | | 27 | `#3f0a35` | magenta shadow |
+| 20 | `#0d3a18` | green shadow | | 28 | `#000000` | pure black |
+| 21 | `#003a3a` | teal shadow | | 29 | `#55555f` | dim grey |
+| 22 | `#00454c` | cyan shadow | | 30 | `#b8b8c2` | light grey |
+| 23 | `#0a2a52` | azure shadow | | 31 | `#f4f4f8` | near white |
 
 #### Void Full (64) — Void Expanded plus 32 more
 
-Indices 0–31 as above, then a full neutral ramp and five-hue shade runs:
+Indices 0–31 as above, then the **light step** and the **highlight step** of
+every hue family, then eight more neutrals — the earths.
 
 | Index | Hex | Name | | Index | Hex | Name |
 |------:|-----|------|-|------:|-----|------|
-| 32 | `#0a0a0d` | ink | | 48 | `#fff89a` | lemon |
-| 33 | `#57575f` | steel | | 49 | `#fffbc3` | butter |
-| 34 | `#8a8a94` | pewter | | 50 | `#00454c` | deep cyan |
-| 35 | `#e4e4e8` | bone | | 51 | `#00747f` | dark cyan |
-| 36 | `#5c2a00` | deep orange | | 52 | `#00a8b8` | cyan |
-| 37 | `#a04a00` | dark orange | | 53 | `#4fffff` | light cyan |
-| 38 | `#d96a10` | orange | | 54 | `#8affff` | pale cyan |
-| 39 | `#ff8a2a` | light orange | | 55 | `#b8ffff` | ice |
-| 40 | `#ffab5c` | lighter orange | | 56 | `#e0ffff` | frost |
-| 41 | `#ffc98a` | pale orange | | 57 | `#2a0045` | deep purple |
-| 42 | `#ffe0b3` | cream | | 58 | `#4a0070` | dark purple |
-| 43 | `#5c4a00` | deep yellow | | 59 | `#7a1aa8` | purple |
-| 44 | `#a08a00` | dark yellow | | 60 | `#a64fff` | light purple |
-| 45 | `#d9c410` | yellow | | 61 | `#c98aff` | pale purple |
-| 46 | `#ffe44f` | light yellow | | 62 | `#e0b8ff` | lavender |
-| 47 | `#fff06a` | pale yellow | | 63 | `#f0dfff` | orchid |
+| 32 | `#f26b62` | red light | | 44 | `#ffb0a2` | red highlight |
+| 33 | `#f9a54a` | orange light | | 45 | `#ffd08a` | orange highlight |
+| 34 | `#f5d94a` | yellow light | | 46 | `#fff5a8` | yellow highlight |
+| 35 | `#c2e35c` | lime light | | 47 | `#eaf7a8` | lime highlight |
+| 36 | `#6ecf6e` | green light | | 48 | `#b6f0a8` | green highlight |
+| 37 | `#4fd6c2` | teal light | | 49 | `#a8f0e2` | teal highlight |
+| 38 | `#4fd9ea` | cyan light | | 50 | `#a8f0f7` | cyan highlight |
+| 39 | `#62b0f0` | azure light | | 51 | `#a8d8ff` | azure highlight |
+| 40 | `#6b8cf0` | blue light | | 52 | `#a8bcff` | blue highlight |
+| 41 | `#8a8af0` | indigo light | | 53 | `#c0c0ff` | indigo highlight |
+| 42 | `#a878f0` | violet light | | 54 | `#d8b8ff` | violet highlight |
+| 43 | `#f06ad6` | magenta light | | 55 | `#ffb0ee` | magenta highlight |
+
+| Index | Hex | Name | | Index | Hex | Name |
+|------:|-----|------|-|------:|-----|------|
+| 56 | `#16161e` | deep blue-black | | 60 | `#2e2620` | dark brown |
+| 57 | `#3a3a46` | slate | | 61 | `#554840` | brown |
+| 58 | `#6b6b76` | warm grey | | 62 | `#8a7259` | light brown |
+| 59 | `#d8d8e0` | pale grey | | 63 | `#b8a68d` | tan |
+
+**A note on the order.** The palettes are nested, so a palette's colours
+must be a *prefix* of the bigger one. The steps of a hue are therefore
+spread across the tiers rather than sitting next to each other: the first
+row holds every base colour, the second every shadow, and so on. The swatch
+grid reads as a value table — the same colour down a column, four shades
+deep.
 
 ### 5.2 Custom palettes
 - A palette is an ordered array of hex strings, **up to 64 colours**.
@@ -973,12 +1070,13 @@ produces are always visible together.
 ### 6.1 Data structures
 
 ```js
-size        // 16 | 32 | 64 | 128 | 256
-grid        // Int8Array(size * size), row-major, grid[y * size + x]
+width       // 16 | 32 | 64 | 128 | 256 | 512 — the canvas's X edge
+height      // 16 | 32 | 64 | 128 | 256 | 512 — the canvas's Y edge
+grid        // Int8Array(width * height), row-major, grid[y * width + x]
 palette     // array of hex strings, 1..64 entries
 activeIndex // 0..palette.length-1, or -1 = eraser mode
 
-refBuffer   // ImageData | null — the reference image, at size x size
+refBuffer   // ImageData | null — the reference image, at width x height
 refMode     // 'off' | 'under' | 'over'
 refOpacity  // 0..1
 refFit      // 'cover' | 'contain' | '1:1'
@@ -989,51 +1087,63 @@ srcZoom     // screen px per source px, 0.05 … 32
 adjust      // { black, white, brightness, contrast, saturation, hue, grey }
 ```
 
+- **The canvas is not square.** It has a width and a height, and the row
+  stride is the *width*. A 64 × 16 canvas is a perfectly ordinary canvas.
 - `grid[i] === -1` means empty.
 - `Int8Array` is used rather than a 2D array of numbers: 256×256 = 65 536
   entries = **64 KB**, snapshots are cheap, and indices 0–63 fit alongside
   the −1 sentinel.
 - `grid` is replaced wholesale on resize; pixels are remapped (§7.5).
-- `refBuffer` is an `ImageData` of exactly `size × size` — the reference is
-  always stored **at grid resolution**, one image pixel per art cell (§8.6).
+- `refBuffer` is an `ImageData` of exactly `width × height` — the reference
+  is always stored **at grid resolution**, one image pixel per art cell
+  (§8.6).
 
-### 6.2 Rendering — three layers, not 4096 `<div>`s
+### 6.2 Rendering — a layered buffer model, not 4096 `<div>`s
 
 v1 rendered every art pixel as a `<div>`. That is 65 536 nodes at 256×256, and
 it was the wrong call even at 64×64. v2 uses a **layered buffer model**:
 
 ```
-┌─ artBuffer    (offscreen canvas, size x size, 1 art px = 1 buffer px)
-├─ refBuffer    (offscreen canvas, size x size, the reference image)
-└─ display      (the <canvas> the user sees, size x scale, DPR-aware)
+┌─ artBuffer     (offscreen canvas, width x height, 1 art px = 1 buffer px)
+├─ previewBuffer (offscreen canvas, the live conversion, over the art)
+├─ refBuffer     (offscreen canvas, width x height, the reference image)
+└─ display       (the <canvas> the user sees, size * scale, DPR-aware)
 ```
 
-That is **two content layers and one display surface** — the source layer
-(`refBuffer`) and the pixel layer (`artBuffer`), composited onto the display
-(§1.3).
+That is **three content layers and one display surface** — the source layer
+(`refBuffer`), the pixel layer (`artBuffer`) and the live conversion
+(`previewBuffer`), composited onto the display (§1.3).
 
 - **artBuffer** holds the artwork at native art resolution. Painting writes
   1×1 rects into it. At 256×256 it is 65 536 px = 256 KB.
+- **previewBuffer** holds the **live conversion**, at the resolution of the
+  grid it was sampled from. It is a *layer of the same canvas*, not a second
+  canvas: the Image mode shows this canvas beside the photo, with the
+  conversion drawn over the artwork (§4.6). The reduced-quality tier samples
+  fewer cells, so the layer is smaller and the composite stretches it back
+  up — the draft reads as blocks until the full pass lands.
 - **refBuffer** holds the reference image at native art resolution, so it
   aligns 1:1 with the grid (§8.6).
-- **display** is the visible `<canvas>`, sized `size * scale` CSS px, with a
-  backing store of `size * scale * devicePixelRatio`.
+- **display** is the visible `<canvas>`, sized `width * scale` × `height *
+  scale` CSS px, with a backing store scaled by the device pixel ratio.
 
-A frame is composited in three steps:
+A frame is composited in four steps:
 
 ```js
 ctx.imageSmoothingEnabled = false
 ctx.clearRect(0, 0, w, h)
 if (refMode === 'under') ctx.globalAlpha = refOpacity, ctx.drawImage(refBuffer, 0, 0, w, h)
 ctx.drawImage(artBuffer, 0, 0, w, h)          // art is opaque, drawn on top
+ctx.drawImage(previewBuffer, 0, 0, w, h)       // the live conversion, over the art
 if (refMode === 'over')  ctx.globalAlpha = refOpacity, ctx.drawImage(refBuffer, 0, 0, w, h)
 drawGridLines()                                // always last
 ctx.globalAlpha = 1
 ```
 
-Two `drawImage` calls and a few hundred line strokes — **sub-millisecond at
+Three `drawImage` calls and a few hundred line strokes — **sub-millisecond at
 any size, including 256×256**. This is why the app can afford a reference
-layer and a large canvas without a dirty-rectangle system.
+layer, a live conversion and a large canvas without a dirty-rectangle
+system.
 
 - `imageSmoothingEnabled = false` everywhere, including in `drawImage`, so the
   upscale is nearest-neighbour. The art is crisp, and the reference is
@@ -1044,6 +1154,8 @@ layer and a large canvas without a dirty-rectangle system.
 - **Grid lines are always drawn last**, in every mode, so the grid stays
   legible over both the art and the reference. They are drawn when the grid
   toggle is on and `scale >= 8` (below 8× the lines would swamp the art).
+- The display's backing store is capped at **4096 device pixels on each
+  edge**, so a 512-wide canvas at 64× cannot ask for a 32 768-pixel canvas.
 
 ### 6.3 What is redrawn when
 
@@ -1061,9 +1173,18 @@ At 256×256 a full `artBuffer` repaint is 65 536 `fillRect` calls — roughly
 3 ms. It happens only on discrete events, never per pointer-move.
 
 ### 6.4 Zoom
-- Scale is expressed in **CSS pixels per art pixel**: 4, 8, 16, 32, plus `fit`.
-- `fit` computes `floor(availableWidth / size)` clamped to 4…32, so a 16×16
-  canvas on a large screen renders at 32× and a 256×256 at 4×.
+- The canvas's scale is **CSS pixels per art pixel**: any whole number from
+  1 to 64, plus `fit`.
+- `fit` takes the largest step of the ladder (1, 2, 4, 8, 16, 32, 64) at
+  which the whole canvas still fits the pane — both edges, so a rectangle
+  fits too.
+- The **zoom slider is logarithmic**: 1× to 64× across the slider's travel,
+  so each step of the ladder is the same distance on it. A linear slider
+  would spend most of its travel on the two or three zoom levels nobody
+  uses.
+- **The source pane has its own zoom** — screen pixels per *source* pixel,
+  0.05 to 32, on its own logarithmic slider. The two zooms are separate
+  state: zooming the photo does not zoom the pixel art (§4.6).
 - Zoom is centred on the canvas, not the pointer. A pointer-centred zoom needs
   scroll-anchoring maths for marginal benefit at these sizes; the canvas
   scrolls anyway.
@@ -1185,20 +1306,26 @@ The centre cell of an odd-sized canvas is painted once, not four times.
 - Palette changes are **not** undoable in v2 — only the canvas is. (Palette
   history would need to snapshot the palette too; deferred, §15.)
 - Resize is undoable: the pre-resize grid is pushed onto the undo stack.
-- **`Convert to canvas` is undoable**: the pre-conversion grid is pushed onto
+- **`Apply to canvas` is undoable**: the pre-conversion grid is pushed onto
   the stack, so a bad conversion is one `Ctrl+Z` away.
 - Redo stack is cleared on any new edit.
 
 ### 7.5 Resize
-- Changing size goes through the **Resize** flow, not the size buttons.
-  Clicking a size button with existing art opens the resize panel rather than
+- The canvas has **an X and a Y**, each a dropdown of **16, 32, 64, 128,
+  256, 512** (§4.1). Never free text — the canvas is one of the allowed
+  sizes or it is not a canvas this app draws.
+- A **lock button** ties the two together. Locked (the default), they always
+  match and the canvas is square; changing either sets both. Unlocked, they
+  are independent and the canvas can be a rectangle.
+- Changing a size with existing art opens the **resize panel** rather than
   silently discarding the drawing. (This is the v1 footgun, fixed.)
 - Resize is **centre-anchored**: the old grid is centred in the new one.
   Cells outside the new bounds are cropped; new cells are empty.
 - The reference image is **resampled to the new size** with the same fit mode
   (nearest-neighbour), so the underlay stays aligned with the grid.
-- The size buttons still act as a fast path when the canvas is empty.
-- The undo stack survives a resize, with the pre-resize grid as its top entry.
+- The size dropdowns still act as a fast path when the canvas is empty.
+- The undo stack survives a resize, with the pre-resize grid **and both
+  edges** as its top entry. A snapshot is `{ width, height, grid }`.
 
 ### 7.6 New / clear
 - `New` clears the canvas to empty at the current size.
@@ -1242,28 +1369,32 @@ The centre cell of an odd-sized canvas is painted once, not four times.
 ```json
 {
   "format": "voidpixlr",
-  "version": 2,
-  "size": 64,
+  "version": 3,
+  "width": 64,
+  "height": 16,
   "palette": ["#ffffff", "#000000", "..."],
   "pixels": [[0, -1, 3, -1], [-1, 5, 5, -1]]
 }
 ```
 
-- `size`: 16 | 32 | 64 | 128 | 256.
+- `width`, `height`: 16 | 32 | 64 | 128 | 256 | 512, independently.
 - `palette`: 1–64 hex strings, in order.
-- `pixels`: `size` rows of `size` integers, `-1` = empty, otherwise a palette
-  index.
-- Filename: `voidpixlr-<size>x<size>.json`.
+- `pixels`: `height` rows of `width` integers, `-1` = empty, otherwise a
+  palette index.
+- Filename: `voidpixlr-<width>x<height>.json`.
 - The `format` and `version` keys are what make v1 files readable: a file
   without them is treated as **v1** and imported with its palette adopted
   as-is.
+- **v2 files still import.** A v2 file has a single `size` and is square; it
+  is read as `width = height = size`. The format moved to v3 only because
+  the canvas stopped being square.
 
 ### 8.3 Import JSON
 - Read via a hidden `<input type="file" accept="application/json">`.
 - **Validation** — reject the file with an inline error if `pixels` is not a
-  square 2D array of matching dimensions, or if any value is outside
-  `-1…palette.length-1`, or if `palette` is empty or has > 64 entries, or if
-  `size` is not one of the five allowed values.
+  2D array whose rows match the canvas's dimensions, or if any value is
+  outside `-1…palette.length-1`, or if `palette` is empty or has > 64
+  entries, or if either edge is not one of the allowed values.
 - **Two modes, chosen in the import panel:**
   - **Adopt the file's palette** (default) — the file's palette replaces the
     current one and indices map 1:1. Exact, lossless. A built-in is never
@@ -1451,7 +1582,7 @@ arbitrary corner (§1.2).
   pixels decides how much of the image that is. If `cellPx` tracked the
   window, enlarging the browser would silently change what the conversion
   samples — the same picture, converted differently, for no visible reason.
-  A user who resizes the window and presses `Convert to canvas` again must
+  A user who resizes the window and presses `Apply to canvas` again must
   get the same sprite.
 - The overlay is drawn over the image with 1 px grid lines. The area outside
   the overlay is dimmed with a flat `rgba(13,13,15,0.45)` wash, so the active
@@ -1518,7 +1649,7 @@ tuning there fixes the *colours*.
   one pass over ≤ 4.2 M pixels, debounced at 80 ms while a slider is dragged.
 - **The pixel preview updates live too.** Moving a contrast or saturation
   slider re-samples the grid and re-matches it to the palette, so the sprite
-  in the preview pane changes as you drag (§8.8.4). That is the whole point
+  on the canvas changes as you drag (§8.8.4). That is the whole point
   of the control: you are adjusting the photo *because* of what it does to
   the pixel art.
 
@@ -1568,7 +1699,7 @@ into exactly `size × size` cells, one per grid cell. Two methods:
 | **Nearest** | One sample per cell, at the cell's centre | The source is already pixel art — averaging would blur it. |
 
 - The result is a `size × size` grid of RGB values — the **grid overlay** the
-  user sees drawn over the source image in the preview pane.
+  user sees drawn over the source image, in the canvas beside it.
 - The sampling geometry is §8.7.5.
 - Alpha weighting: a pixel's contribution is scaled by its alpha, so
   semi-transparent edges blend correctly. A cell whose pixels are all fully
@@ -1600,7 +1731,7 @@ Each cell's colour is matched to the palette. Four methods:
 
 #### 8.8.3 Stage 3 — write to the canvas
 
-`Convert to canvas` replaces `grid` with the result:
+`Apply to canvas` replaces `grid` with the result:
 
 - Every cell becomes the palette index of its matched colour, or `-1` if the
   cell was empty (fully transparent in the source).
@@ -1626,7 +1757,7 @@ moved. Nothing waits for a button.
 | Pan / zoom (§8.7.3) | the sampled grid, the matched result |
 | Grid size, sample method, match method | everything |
 
-**The preview pane** shows the **source with the grid overlay** beside the
+**The source pane** shows the **source with the grid overlay** beside the
 **converted result**, both at the target grid resolution, scaled up
 nearest-neighbour. The source shown is the **adjusted** image, so the preview
 is honest about what will be converted.
@@ -1641,7 +1772,7 @@ comparisons — fine once, far too slow for a slider drag. So:
 - **When the control settles** (pointerup, or 120 ms after the last input):
   the full-resolution preview is computed and drawn over the reduced one.
 
-The reduction is a preview detail only. `Convert to canvas` always converts
+The reduction is a preview detail only. `Apply to canvas` always converts
 at full resolution, from the full working copy, with the current palette.
 
 - Panning and zooming move the image under a **fixed** grid, so a pan never
@@ -1692,9 +1823,9 @@ at full resolution, from the full working copy, with the current palette.
 
 | Store | Key | Contents |
 |---|---|---|
-| `localStorage` | `voidpixlr:canvas:v2` | `{ size, palette, grid }` — the current work. |
+| `localStorage` | `voidpixlr:canvas:v2` | `{ width, height, palette, grid }` — the current work. |
 | `localStorage` | `voidpixlr:palettes:v2` | All user palettes (array of `{ name, colours }`). |
-| `localStorage` | `voidpixlr:prefs:v2` | `{ zoom, gridVisible, symmetry, activePalette, adjust, srcPan, srcZoom }`. |
+| `localStorage` | `voidpixlr:prefs:v2` | `{ scale, fitZoom, gridVisible, symmetry, activePalette, adjust, srcPan, srcZoom, sizeLocked }`. |
 | IndexedDB | `voidpixlr` → `source` | The photo's original `Blob`, plus its file name and type. |
 
 - **Everything stays on the user's machine.** There is no server component, no
@@ -1711,6 +1842,8 @@ at full resolution, from the full working copy, with the current palette.
   Codepoints 0x100–0x13F are printable and survive JSON round-tripping
   without escapes. At 256×256 that is 65 536 characters instead of the
   ~262 000 a JSON array of numbers would need. Decoding is a one-liner.
+  A save written before the canvas could be rectangular carries a single
+  `size` and is read as a square.
   *(`0x100 + i` works precisely because the palette is capped at 64 — the
   ladder in §6.6 rules out index values that would exceed the range.)*
 - **The photo is never written into the JSON export.** A project file is
@@ -2160,7 +2293,7 @@ the umbrella keeps no copy of it. What it has is a **pointer**.
 8. In the CONVERT block they choose `Average` and `Floyd–Steinberg`. The
    preview updates: the left pane shows the adjusted source with the 32×32
    grid overlay, the right pane shows the dithered pixel art.
-9. They press `Convert to canvas`. The canvas is now 32×32, filled with the
+9. They press `Apply to canvas`. The canvas is now 32×32, filled with the
    converted art, and the palette in the sidebar is the one that produced it.
 10. They press `Ctrl+Z`. The canvas returns to empty. They press
     `Ctrl+Shift+Z` and it comes back.
@@ -2401,7 +2534,7 @@ v2 is done when **all** of these are true.
 55. [ ] The preview shows the source with the target grid overlay beside the
         converted result, and updates **live** — while a slider is being
         dragged, not only after it settles.
-56. [ ] `Convert to canvas` replaces the art, sets the canvas size, and is
+56. [ ] `Apply to canvas` replaces the art, keeps the canvas size, and is
         undoable.
 57. [ ] The converted canvas uses the palette that produced it.
 
@@ -2863,6 +2996,59 @@ highlights when a file is dragged over it, and a photo dropped on the
 **sidebar** loads — with its original filename, which is how the test knows
 the drop was handled once and not twice.
 
+### 16.12 The square that was not a rule, and the palettes that were not balanced
+
+Three faults, all reported as taste and all of them structural.
+
+**The canvas was square because the code said so.** There was one `size`,
+one `Int8Array(size * size)`, one row stride of `size`, and five size
+buttons. Every one of them said "a canvas is square" without ever asking.
+
+The rework gives the canvas a **width and a height** and takes "square"
+away as an assumption: the buffers are `width × height`, the grid's row
+stride is the width, the sampler's cells are `width × height`, the symmetry
+mirrors about each edge separately, the grid lines are drawn per axis, the
+export scales each edge separately, the autosave stores both, and the undo
+snapshot carries both. The top bar's two dropdowns offer the six allowed
+sizes and nothing else, and the lock button is what makes them one number
+again.
+
+**The two modes each had their own canvas.** The workspace held a *second*
+canvas that showed a copy of the result at a different scale, and it had a
+size of its own — so the Draw mode's canvas and the Image mode's target
+were two answers to the same question, and the live result was drawn twice
+in two places that could disagree.
+
+There is now **one art canvas**. The workspace adds the source pane beside
+it, and the live conversion is a **layer over the artwork in that same
+canvas** — `previewBuffer`, a third buffer in the same layered model
+(§6.2). The workspace's conversion target is the canvas's own size, so
+there is one size, one grid and one canvas. The Draw mode and the Image
+mode are two views of the same artwork.
+
+**Neither pane zoomed the other.** The source pane had a zoom; the result
+had none, and it was scaled to fit. Each pane now has a **zoom slider** of
+its own, on a logarithmic scale, and neither one writes to the other's
+state. The source's zoom is the workspace's; the canvas's is the canvas's.
+
+**The palettes were arbitrary.** Every built-in had a single red and a
+single blue while other hues had four, so there was nothing to shade with.
+The three built-ins are now built on **twelve hue families** — red, orange,
+yellow, lime, green, teal, cyan, azure, blue, indigo, violet, magenta —
+each with **one** step in the 16, **two** in the 32 and **four** in the 64.
+Every hue has the same depth, the ramps run dark to light with cool
+shadows and warm highlights, and the neutrals fill the rest with the greys
+and the earths.
+
+**How it is guarded now.** The balance is a *test*, not a promise. The node
+suite classifies every colour of every built-in into a hue family — the
+nearest family on the wheel, with the saturation floor that separates the
+earths from the hues — and asserts that every family has the same depth in
+every palette, that a family never disappears as the palette grows, that
+no colour is repeated, and that the palettes are still nested. The spec's
+own tables are checked against the code, so the documentation cannot drift
+away from the build.
+
 ---
 
 ## 17. Risks & Known Behaviours
@@ -2876,7 +3062,8 @@ the drop was handled once and not twice.
 | **Local storage deviates from house rule 9** | An approved deviation (§9.4) | Scoped, local-only, clearable. The rule that holds absolutely is the one that matters: nothing is ever transmitted. |
 | **A photo survives on a shared machine** | Local storage means the last photo is still there | `Forget everything` deletes the photo and all artwork in one click (§9.3). |
 | **An image upload creeps in** | A "helpful" future feature could add one | §2.3 makes it a named, tested acceptance criterion (§16.22) — the check is one glance at the network panel. |
-| **256×256 memory** | 64 KB grid + 2 × 256 KB buffers + 1.3 MB history ≈ 1.9 MB | Comfortable. Budgeted in §6.6. |
+| **256×256 memory** | 64 KB grid + 3 × 256 KB buffers + 1.3 MB history ≈ 2.2 MB | Comfortable. Budgeted in §6.6. |
+| **A 512-wide canvas** | 256 KB grid, a 262 144-cell buffer, and a 8-slot history | The history depth follows the cell count, not the edge, so the memory stays around 2 MB. The display's backing store is capped at 4096 device pixels. |
 | **256×256 export at 32×** | An 8192² canvas is 268 MB and will fail | Hard cap at 4096²; the option is disabled in the UI (§6.6). |
 | **256×256 redraw cost** | 65 536 `fillRect` calls per full repaint (~3 ms) | Buffer model: full repaints happen only on discrete events (§6.3). |
 | **Nearest-match cost at 64 colours** | 65 536 cells × 64 comparisons ≈ 4.2 M | Flatten the palette into a `Float32Array`; ~30–60 ms, computed once per conversion (§8.4). |
@@ -2981,7 +3168,7 @@ and so that changing one is a deliberate act.
     would look nicer at high zoom but would invent colours that do not exist
     in the grid. Nearest-neighbour keeps the photo honest.
 12. **The workspace is a mode, not a modal** (§4.6), and it never touches the
-    canvas until `Convert to canvas` is pressed.
+    canvas until `Apply to canvas` is pressed.
 
 ---
 
@@ -2989,7 +3176,8 @@ and so that changing one is a deliberate act.
 
 VoidPixlr v2 is:
 
-- **A real pixel-art tool** — 16 to 256×256, palettes of 16/32/64, drag-paint,
+- **A real pixel-art tool** — 16 to 512 on either edge, palettes of 16/32/64,
+  drag-paint,
   symmetry, multi-level undo, zoom, resize, PNG + JSON in and out.
 - **An image-to-pixel-art pipeline** — load a photo, frame it under a grid by
   panning and zooming, adjust its levels, contrast and saturation, pull a
@@ -3015,7 +3203,7 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built, tested and live.** The source in this folder is the v2.0 r12 build,
+**Built, tested and live.** The source in this folder is the v2.0 r13 build,
 serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no

@@ -5,8 +5,13 @@
    and the depth scales with the canvas size so the history stays inside about
    1–2 MB at every size:
 
-       16 / 32 / 64 / 128   50 snapshots
-       256                  20 snapshots
+       up to 128 x 128    50 snapshots
+       up to 256 x 256    20 snapshots
+       up to 512 x 512     8 snapshots
+
+   The canvas is not square, so the depth follows the number of cells rather
+   than one edge: a 512 x 16 canvas has fewer cells than a 256 x 256 one and
+   gets the deeper stack.
 
    A snapshot is pushed at pointerdown and committed at pointerup only if the
    stroke changed something, so a click that paints nothing does not burn an
@@ -19,8 +24,11 @@
   const VP = root.VP || (root.VP = {});
   const H = (VP.history = {});
 
-  H.depthFor = function depthFor(size) {
-    return size === 256 ? 20 : 50;
+  H.depthFor = function depthFor(width, height) {
+    const cells = width * (height === undefined ? width : height);
+    if (cells <= 128 * 128) return 50;
+    if (cells <= 256 * 256) return 20;
+    return 8;
   };
 
   function create(depth) {
@@ -54,7 +62,8 @@
          both back. */
       push: function push(snapshot) {
         undo.push({
-          size: snapshot.size,
+          width: snapshot.width,
+          height: snapshot.height,
           grid: Int8Array.from(snapshot.grid),
         });
         while (undo.length > max) undo.shift();
@@ -66,7 +75,8 @@
       undo: function undoStep(current) {
         if (!undo.length) return null;
         redo.push({
-          size: current.size,
+          width: current.width,
+          height: current.height,
           grid: Int8Array.from(current.grid),
         });
         while (redo.length > max) redo.shift();
@@ -76,7 +86,8 @@
       redo: function redoStep(current) {
         if (!redo.length) return null;
         undo.push({
-          size: current.size,
+          width: current.width,
+          height: current.height,
           grid: Int8Array.from(current.grid),
         });
         while (undo.length > max) undo.shift();

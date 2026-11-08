@@ -34,19 +34,23 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
   matching, median cut, Lloyd refinement, the area-average sampler, the
   source adjustments, the four match methods, the grid serialiser. No DOM.
 - `js/palette.js` — the palette model, the three nested built-ins, editing,
-  reordering, the staging palette, and the re-indexing on a palette change.
-- `js/history.js` — the undo and redo stacks, depth scaled by canvas size.
+  reordering, the staging palette, the re-indexing on a palette change, and
+  the hue-family classifier the balance test uses.
+- `js/history.js` — the undo and redo stacks, depth scaled by the canvas's
+  cell count.
 - `js/storage.js` — `localStorage` (three keys) and the IndexedDB photo
   store. Every write is wrapped; a quota error is swallowed.
-- `js/canvas.js` — the buffers, the compositing, the pointer handling:
-  drag-paint with Bresenham interpolation, the eraser, symmetry, zoom.
+- `js/canvas.js` — the buffers (art, preview, reference), the compositing,
+  the pointer handling: drag-paint with Bresenham interpolation, the eraser,
+  symmetry, zoom.
 - `js/reference.js` — the source layer: loading, the working copy, the
   adjustments, the underlay resample, the fit modes.
 - `js/io.js` — PNG and JSON export, JSON and PNG import, the clipboard with
   its download fallback.
-- `js/workspace.js` — the Image workspace: pan and zoom framing, the
-  adjustment panel, palette extraction and tuning, the conversion, and the
-  two-tier live preview.
+- `js/workspace.js` — the Image workspace: the source pane's own pan and
+  zoom, the adjustment panel, palette extraction and tuning, the conversion,
+  and the two-tier live preview — which is drawn on the canvas, not on a
+  second one.
 - `js/app.js` — the bootstrap: wiring, the keyboard, drag and drop, paste,
   the inline panels, the autosave.
 - `ops/nginx/voidpixlr.conf` — the vhost.
@@ -63,11 +67,11 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 130 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 148 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py            # 92 end-to-end checks
+python3 tests/browser/e2e.py            # 94 end-to-end checks
 python3 tests/browser/hostile.py        # 31 hostile-input checks
 ```
 
@@ -196,6 +200,34 @@ from what nginx will send.
   and passes — green, and blind. It lives in `tests/browser/probe.py` and is
   loaded with `src`; both suites assert `probe.is_installed()` first, so it
   cannot go quietly blind again.
+
+- **The canvas is not square, and `size` is gone.** `VP.canvas.state.width`
+  and `.height` are the two edges; the grid's row stride is the **width**.
+  Every buffer, export, autosave and undo snapshot carries both. A snapshot
+  is `{ width, height, grid }`, not `{ size, grid }`.
+- **The X and Y dropdowns are dropdowns, not free text.** They are filled
+  from `Q.ALLOWED_SIZES` — 16, 32, 64, 128, 256, 512 — so the canvas is
+  always one of the allowed sizes. The lock button ties them together;
+  locked, changing either sets both.
+- **There is one art canvas.** The workspace's live conversion is a
+  **layer over the artwork** (`VP.canvas.setPreview`), drawn in the same
+  canvas the Draw mode paints in. There is no `#preview-pane` any more.
+  The workspace converts into the canvas's own size — it has no size of its
+  own, and `state.convertSize` is gone.
+- **Each pane zooms on its own.** The source's zoom is
+  `VP.workspace.state.zoom`; the canvas's is `VP.canvas.state.scale`.
+  Neither writes to the other, and the canvas's scale is an integer from
+  1 to 64 — the slider maps to it logarithmically.
+- **The built-in palettes are balanced on purpose.** Twelve hue families,
+  each with one step in the 16, two in the 32 and four in the 64. The node
+  suite checks that with `P.hueCoverage()`; the check is the point, so do
+  not "tidy" a ramp without checking the test still passes.
+- **The palettes are nested, so a palette is a prefix of the bigger one.**
+  The steps of a hue are therefore spread across the tiers rather than
+  sitting next to each other, and the swatch grid reads as a value table.
+- **The spec's palette tables are checked against the code.** A node test
+  reads `project.md` and `js/palette.js` and compares them. Change one and
+  you must change the other.
 
 ## Brand identity
 
