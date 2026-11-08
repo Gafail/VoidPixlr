@@ -1528,6 +1528,55 @@ check("the live-site check exists and does not need the probe", () => {
   );
 });
 
+/* --- the ImageData trap ---------------------------------------------------- */
+
+check("an ImageData is never handed to drawImage", () => {
+  /* Firefox refuses an ImageData as a drawImage source:
+       "Argument 1 could not be converted to any of: ..."
+     The reference resampler did exactly that, so any photo over the
+     working cap failed to load at all. The conversion is centralised in
+     toDrawable, and drawToImageData is the one place that draws. */
+  const reference = read("js/reference.js");
+  assert(
+    reference.includes("function toDrawable("),
+    "there is no toDrawable — an ImageData can still reach drawImage",
+  );
+  assert(
+    /function drawToImageData[\s\S]{0,400}drawImage\(toDrawable\(/.test(reference),
+    "drawToImageData does not convert the drawable first",
+  );
+
+  /* And the downscale — the path that actually broke — goes through it. */
+  assert(
+    /function downscale[\s\S]{0,500}drawToImageData\(/.test(reference),
+    "the downscale does not go through drawToImageData",
+  );
+});
+
+check("the test images include one over the working cap", () => {
+  const maker = read("tools/make-test-images.py");
+  assert(
+    maker.includes("test-large.png"),
+    "there is no over-cap test image, so the resampler is never exercised",
+  );
+  assert(
+    /2400/.test(maker) && /1800/.test(maker),
+    "the over-cap test image is not over the 2048 working cap",
+  );
+});
+
+check("the browser suite loads a photo over the working cap", () => {
+  const e2e = read("tests/browser/e2e.py");
+  assert(
+    e2e.includes("test-large.png"),
+    "the e2e suite never loads an over-cap photo",
+  );
+  assert(
+    e2e.includes("a photo over the working cap loads"),
+    "the e2e suite does not check that an over-cap photo loads",
+  );
+});
+
 /* --- summary -------------------------------------------------------------- */
 
 console.log("");

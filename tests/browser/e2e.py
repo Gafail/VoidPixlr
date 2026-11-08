@@ -268,6 +268,55 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     )
     check("the working copy is bounded at 2048", dims[0] <= 2048 and dims[1] <= 2048, str(dims))
 
+    # A photo larger than the working cap has to be downscaled, and the
+    # downscale used to hand an ImageData straight to drawImage, which
+    # Firefox refuses. Every image in the suite was under the cap, so
+    # nothing caught it. This one is over it.
+    large = IMAGES / "test-large.png"
+    if large.exists():
+        fx.set_file_input("#file-image", str(large))
+        fx.execute_script(
+            "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+        )
+        time.sleep(3.0)
+
+        alert = fx.execute_script(
+            "return {shown: !document.getElementById('alert').hidden,"
+            " text: document.getElementById('alert-text').textContent};"
+        )
+        check(
+            "a photo over the working cap loads",
+            fx.execute_script("return VP.reference.hasImage();") is True,
+            alert["text"] or "no image",
+        )
+        check(
+            "a photo over the working cap raises no error",
+            not alert["shown"],
+            alert["text"],
+        )
+
+        large_dims = fx.execute_script(
+            "var s = VP.reference.state.source;"
+            "return [s.width, s.height, s.originalWidth, s.originalHeight];"
+        )
+        check(
+            "the over-cap photo is downscaled to the working copy",
+            large_dims[0] <= 2048 and large_dims[1] <= 2048,
+            str(large_dims),
+        )
+        check(
+            "the over-cap photo keeps its original dimensions",
+            large_dims[2] == 2400 and large_dims[3] == 1800,
+            str(large_dims),
+        )
+
+        # Put the small photo back for the rest of the run.
+        fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
+        fx.execute_script(
+            "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+        )
+        time.sleep(1.5)
+
     fx.execute_script("VP.reference.setMode('under');")
     time.sleep(0.3)
     fx.screenshot(str(shots / "03-reference-underlay.png"))

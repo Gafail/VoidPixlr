@@ -175,13 +175,37 @@
     });
   }
 
+  /* An ImageData is not a drawImage source in Firefox. Handing one over
+     throws:
+
+       CanvasRenderingContext2D.drawImage: Argument 1 could not be
+       converted to any of: HTMLImageElement, SVGImageElement,
+       HTMLCanvasElement, HTMLVideoElement, OffscreenCanvas, ImageBitmap,
+       VideoFrame.
+
+     When the drawable is an ImageData it is painted into a canvas first,
+     and the canvas is what gets drawn. A canvas is a valid source
+     everywhere.
+
+     This bit the resampler: a photo larger than the working cap was
+     downscaled by handing its ImageData straight to drawImage, so any
+     photo over 2048 pixels failed to load at all. */
+  function toDrawable(source) {
+    if (!source || typeof source !== "object") return source;
+    /* An ImageData has `data`; an ImageBitmap, an <img> and a canvas do not. */
+    if (!("data" in source) || !("width" in source)) return source;
+    const canvas = makeCanvas(source.width, source.height);
+    paintCanvas(canvas, source);
+    return canvas;
+  }
+
   function drawToImageData(drawable, width, height) {
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     context.imageSmoothingEnabled = true;
-    context.drawImage(drawable, 0, 0, width, height);
+    context.drawImage(toDrawable(drawable), 0, 0, width, height);
     return context.getImageData(0, 0, width, height);
   }
 

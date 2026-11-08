@@ -120,6 +120,28 @@ def make_grid(width: int = 4, height: int = 4) -> list[bytearray]:
     return rows
 
 
+def make_large(width: int = 2400, height: int = 1800) -> list[bytearray]:
+    """A photo larger than the 2048 working cap.
+
+    This is the case the resampler only takes when the source is bigger
+    than the cap — and it is where the ImageData was handed straight to
+    drawImage, which Firefox refuses. Nothing above 320x240 ever reached
+    that path, so nothing caught it.
+    """
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        v = y / (height - 1)
+        for x in range(width):
+            u = x / (width - 1)
+            colour = mix((20, 30, 90), (230, 140, 80), v)
+            if math.hypot(x - width * 0.5, y - height * 0.45) < height * 0.22:
+                colour = (240, 220, 190)
+            row += bytes(colour) + b"\xff"
+        rows.append(row)
+    return rows
+
+
 def main(argv: list[str]) -> int:
     out = Path(argv[1] if len(argv) > 1 else ".")
     out.mkdir(parents=True, exist_ok=True)
@@ -131,6 +153,10 @@ def main(argv: list[str]) -> int:
     grid = out / "test-grid.png"
     write_png(grid, 4, 4, make_grid())
     print(f"wrote {grid} (4x4, with alpha)")
+
+    large = out / "test-large.png"
+    write_png(large, 2400, 1800, make_large())
+    print(f"wrote {large} (2400x1800 — over the 2048 working cap)")
 
     return 0
 

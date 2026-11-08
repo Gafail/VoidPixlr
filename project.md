@@ -116,6 +116,35 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >   which `.198` still uses), and the Node.js, npm and `appctl` machinery
 >   the template carries were removed — a static site needs none of it, and
 >   `.199` was tidied the same way.
+>
+> - **r9 (2026-11-08)** — **a photo larger than the working cap could not be
+>   loaded at all.** The user hit this in the browser:
+>
+>   > `CanvasRenderingContext2D.drawImage: Argument 1 could not be converted
+>   > to any of: HTMLImageElement, SVGImageElement, HTMLCanvasElement,
+>   > HTMLVideoElement, OffscreenCanvas, ImageBitmap, VideoFrame.`
+>
+>   The cause was a type error, not a fault in the photo. `reference.js`
+>   downscaled an over-cap image by handing its **`ImageData`** straight to
+>   `drawImage`, and **Firefox does not accept an `ImageData` as a
+>   `drawImage` source** — only a drawable element. `LIMITS.maxDimension` is
+>   16 384 but `LIMITS.workingMax` is **2 048**, so every photo between those
+>   two sizes took the downscale path and failed. Photos under 2 048 px
+>   worked, which is why the small test images never caught it.
+>
+>   The downscale now paints the `ImageData` into a canvas with
+>   `putImageData` and hands **that** to `drawImage`, in one helper
+>   (`toDrawable`) so the rule cannot be broken in a second place. The
+>   exception was being swallowed by the promise chain, so it surfaced as
+>   the **alert bar's text** rather than as a console error — the alert bar
+>   from r8 is what made it visible at all.
+>
+>   This is the third time a **browser-specific fault** has been caught only
+>   by running a real browser (§16.8). It is now guarded three ways: a
+>   **2 400×1 800 test image** over the cap, an **e2e check** that it loads
+>   with no error and keeps its original dimensions, and a **live check**
+>   that runs the same path against the deployed site. A node test also
+>   asserts that **no `ImageData` is ever passed to `drawImage`**.
 
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
@@ -254,7 +283,7 @@ Why the distinction is worth stating plainly:
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
   row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r5)
+- **Version:** 2.0 (revision r9)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
   10-minute doodles to serious sprite work and photo tracing.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -2293,10 +2322,10 @@ The build ships with three test suites, all dependency-free:
 
 | Suite | What it runs against | Checks |
 |---|---|---|
-| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 117 |
-| `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 67 |
+| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 120 |
+| `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 71 |
 | `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 31 |
-| `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 10 |
+| `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 14 |
 
 The browser suites are also run **against the real shared CSP**.
 `tests/browser/csp_server.py` parses the umbrella's
@@ -2456,6 +2485,86 @@ shrink — a shrink could take it to nothing, and a grid that collapses leaves
 the sections on top of each other, which was the failure that produced
 overlapping text in the first place.
 
+### 16.9 The over-cap photo: an `ImageData` is not a drawable
+
+A fifth fault was found after the first deployment, from the browser's own
+error text:
+
+> `CanvasRenderingContext2D.drawImage: Argument 1 could not be converted to
+> any of: HTMLImageElement, SVGImageElement, HTMLCanvasElement,
+> HTMLVideoElement, OffscreenCanvas, ImageBitmap, VideoFrame.`
+
+**Measured.** The message names the fault precisely: `drawImage` was handed
+something that is not drawable. The call site was `reference.js`
+`downscale()`, which did this:
+
+```js
+context.drawImage(imageData, 0, 0, width, height);   // an ImageData
+```
+
+`ImageData` is a **pixel buffer, not a drawable**. `drawImage` accepts an
+`HTMLImageElement`, `SVGImageElement`, `HTMLCanvasElement`,
+`HTMLVideoElement`, `OffscreenCanvas`, `ImageBitmap` or `VideoFrame` — and
+nothing else. Firefox rejects an `ImageData` outright.
+
+**Why nothing caught it.** The limits are two different numbers:
+
+| Limit | Value | Meaning |
+|---|---|---|
+| `LIMITS.maxDimension` | 16 384 | the largest photo accepted at all |
+| `LIMITS.workingMax` | **2 048** | the largest **working copy** kept |
+
+A photo between 2 049 px and 16 384 px is accepted and then **must be
+downscaled**, and the downscale was the broken path. Every test image in the
+suite was under 2 048 px, so the downscale never ran. The suite was green
+and the app was broken for the photographs people actually take.
+
+**The fix.** The `ImageData` is painted into a canvas with `putImageData`,
+and **that canvas** is the `drawImage` source:
+
+```js
+function toDrawable(source) {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+  canvas.getContext('2d').putImageData(source, 0, 0);
+  return canvas;
+}
+
+context.drawImage(toDrawable(drawable), 0, 0, width, height);
+```
+
+It is in one helper on purpose. `io.js` had already got this right with its
+own `imageDataCanvas`; having two correct implementations and one wrong one
+is how the bug survived a review. One helper, one rule.
+
+**Why it surfaced as a message rather than a crash.** The exception was
+raised inside a promise chain and caught by it, so it was reported through
+the app's error path — the **alert bar** from r8. Without that bar the user
+would have seen the canvas simply not change, and the fault would have
+looked like another invisible photo.
+
+**How it is guarded now.** Four ways, and the fourth is the one that matters:
+
+| Guard | What it proves |
+|---|---|
+| `tools/make-test-images.py` writes a **2 400×1 800** image | the downscale path has a fixture to run on |
+| `tests/browser/e2e.py` — *a photo over the working cap loads* | the real browser downsizes it, raises no error, and keeps the original 2 400×1 800 dimensions for the report |
+| `tests/browser/live.py` — *an over-cap photo raises no error on the deployed site* | the same path works on the live box, not just locally |
+| `tests/voidpixlr.test.mjs` — *an ImageData is never handed to drawImage* | the rule is enforced in the source, so a future edit cannot reintroduce it |
+
+The node test is the important one. A test that only runs in a browser needs
+a browser; a test that reads the source needs nothing, and it fails the
+moment someone writes `drawImage` with an `ImageData` again.
+
+**The lesson, recorded.** This is the third browser-specific fault in this
+build (§16.8, §16.9). Every one of them was invisible to a type checker, a
+node test and a code read — the type system is happy with
+`drawImage(imageData)`, because `drawImage`'s first parameter is typed
+loosely enough to accept it in some engines' definitions, and the runtime
+check happens later. **A real browser is part of the test suite here, not a
+convenience.** The suite would have shipped green three times over.
+
 ---
 
 ## 17. Risks & Known Behaviours
@@ -2487,6 +2596,7 @@ overlapping text in the first place.
 | **Colour pickers vary by browser** | `<input type="color">` UI differs | The hex text field is the fallback and the source of truth. |
 | **A palette change cannot be undone** | Palette is outside the undo stack | Accepted for v2; v2.1 candidate. |
 | **Right-drag on a trackpad** | Ambiguous two-finger gestures | The eraser tile and `E` are the primary paths. |
+| **An `ImageData` reaches `drawImage`** | Firefox refuses a non-drawable source | One helper, `toDrawable`, and a node test that fails if any `ImageData` is passed to `drawImage` (§16.9). |
 
 ---
 
@@ -2607,20 +2717,20 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built, tested and live.** The source in this folder is the v2.0 r8 build,
+**Built, tested and live.** The source in this folder is the v2.0 r9 build,
 serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no
   dependencies, no framework.
-- 117 node checks, 67 end-to-end browser checks, 31 hostile-input checks,
-  10 live-site checks — all passing, all dependency-free. Both browser
+- 120 node checks, 71 end-to-end browser checks, 31 hostile-input checks,
+  14 live-site checks — all passing, all dependency-free. Both browser
   suites also pass against the real shared CSP.
 - **Deployed and verified.** `./deploy.sh 192.168.100.100` installs the
   site, the vhost and the shared security-headers snippet, disables the
   template's own site, validates with `nginx -t` before reloading, and
   smoke-tests the result. The live site serves the exact shared CSP, and
-  the app boots, loads a photo and runs the whole pipeline under it
-  (§16.1, §16.7).
+  the app boots, loads a photo — **including one over the working cap** —
+  and runs the whole pipeline under it (§16.1, §16.7, §16.9).
 - The container at `.100` was brought into line with the house rules: its
   SSH host keys were regenerated (the clone had inherited the template's
   identity, which `.198` still uses), and the Node.js, npm and `appctl`

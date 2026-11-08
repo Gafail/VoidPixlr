@@ -76,11 +76,11 @@ walking up to the umbrella repository. Run it from inside
 ## Testing
 
 ```bash
-node tests/voidpixlr.test.mjs        # 107 logic checks
+node tests/voidpixlr.test.mjs        # 120 logic checks
 
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py          # 67 end-to-end checks in a real Firefox
-python3 tests/browser/hostile.py      # 30 hostile-input checks
+python3 tests/browser/e2e.py          # 71 end-to-end checks in a real Firefox
+python3 tests/browser/hostile.py      # 31 hostile-input checks
 ```
 
 The browser tests drive a real Firefox over Marionette — a minimal client in

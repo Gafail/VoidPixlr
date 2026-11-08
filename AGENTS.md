@@ -63,12 +63,12 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 107 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 120 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py            # 67 end-to-end checks
-python3 tests/browser/hostile.py        # 30 hostile-input checks
+python3 tests/browser/e2e.py            # 71 end-to-end checks
+python3 tests/browser/hostile.py        # 31 hostile-input checks
 ```
 
 The browser tests drive a real Firefox over Marionette. Firefox must be on
@@ -175,7 +175,7 @@ from what nginx will send.
 
 ## Live operations state
 
-- Current deployed version: **v2.0 r8, live at http://192.168.100.100/**.
+- Current deployed version: **v2.0 r9, live at http://192.168.100.100/**.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.

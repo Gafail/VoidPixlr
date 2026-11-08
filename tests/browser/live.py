@@ -19,6 +19,7 @@ What it checks:
     · the palette rendered — so every script loaded, under the real CSP
     · the canvas is the right size and the zoom is sensible
     · a photo loads locally and the pipeline converts it
+    · a photo over the working cap is downscaled without an error
     · zero network requests outside the origin
 """
 
@@ -134,6 +135,56 @@ def main() -> int:
             painted > 0,
             "the canvas is still empty",
         )
+
+        # A photo over the working cap has to be downscaled, and the
+        # downscale used to hand an ImageData straight to drawImage, which
+        # Firefox refuses. Every other image here is under the cap, so
+        # nothing caught it on the deployed site either.
+        large = IMAGES / "test-large.png"
+        if large.exists():
+            section("a photo over the working cap")
+            firefox.set_file_input("#file-image", str(large))
+            firefox.execute_script(
+                "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+            )
+            time.sleep(3.0)
+
+            alert = firefox.execute_script(
+                "return {shown: !document.getElementById('alert').hidden,"
+                " text: document.getElementById('alert-text').textContent};"
+            )
+            check(
+                "an over-cap photo loads on the deployed site",
+                firefox.execute_script("return VP.reference.hasImage();") is True,
+                alert["text"] or "no image",
+            )
+            check(
+                "an over-cap photo raises no error on the deployed site",
+                not alert["shown"],
+                alert["text"],
+            )
+
+            dims = firefox.execute_script(
+                "var s = VP.reference.state.source;"
+                "return [s.width, s.height, s.originalWidth, s.originalHeight];"
+            )
+            check(
+                "the over-cap photo is downscaled to the working copy",
+                dims[0] <= 2048 and dims[1] <= 2048,
+                str(dims),
+            )
+            check(
+                "the over-cap photo keeps its original dimensions",
+                dims[2] == 2400 and dims[3] == 1800,
+                str(dims),
+            )
+
+            # Put the small photo back for the rest of the run.
+            firefox.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
+            firefox.execute_script(
+                "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+            )
+            time.sleep(1.5)
 
         section("the pipeline")
         firefox.execute_script("document.getElementById('workspace-toggle').click();")
