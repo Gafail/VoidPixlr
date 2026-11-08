@@ -226,6 +226,22 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >   own events, so a reset travels exactly the same path as the user
 >   moving the slider. A "Reset all" button does the same for the whole
 >   adjustment group.
+>
+> - **r12 (2026-11-08)** — **you could not click to upload, and dropping a
+>   photo was "hit and miss"** (§16.11). Both are fixed:
+>
+>   1. **There was nothing to click.** The `Load…` button lived in the
+>      reference strip, and **the strip is hidden until a photo is loaded**
+>      — so before your first load the app had no visible way in at all. The
+>      top bar now carries a **Load photo** button that is always there.
+>   2. **Dropping only worked over two boxes.** The drop targets were the
+>      canvas view and the workspace's source pane, and the source pane only
+>      exists while the workspace is open. Releasing a photo over the
+>      sidebar, the top bar or the bottom bar did nothing. **The whole page
+>      is now a drop target**, and the page says so while a file is over it.
+>   3. **The empty state in the workspace** said "press I" — a shortcut that
+>      existed but that nobody could see. It now says **click to load**, and
+>      it is a real button.
 
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
@@ -364,7 +380,7 @@ Why the distinction is worth stating plainly:
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
   row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r11)
+- **Version:** 2.0 (revision r12)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
   10-minute doodles to serious sprite work and photo tracing.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -2414,8 +2430,8 @@ The build ships with three test suites, all dependency-free:
 
 | Suite | What it runs against | Checks |
 |---|---|---|
-| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 127 |
-| `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 85 |
+| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 130 |
+| `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 92 |
 | `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 31 |
 | `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 14 |
 
@@ -2784,6 +2800,69 @@ preview survives the settle; the photo in the pane updates; the palette
 round-trips; a preset moves the sliders; a palette change reaches the
 preview; and "New" clears the canvas however slowly you click.
 
+### 16.11 The way in: clicking to upload, and dropping a photo
+
+The report was that you could not click to upload, and that dropping a photo
+on to the site was "hit and miss where you release it". Both were true, and
+both had a plain cause.
+
+**There was nothing to click.** The `Load…` button was in the reference
+strip, and the strip is hidden until a photo is loaded:
+
+```js
+const has = VP.reference.hasImage();
+strip.hidden = !has;
+```
+
+So the button that opens the file picker was inside a container that only
+exists *after* the file picker has already been used. Before your first load
+there was no visible way in at all. The only routes were dropping a file or
+pressing `I` — a shortcut that worked and that nobody could see.
+
+Measured: with no photo loaded, the strip is hidden, so there is no `Load…`
+button on the page at all.
+
+The top bar now carries a **Load photo** button. It is the first control
+after the wordmark, it is always visible, and it opens the file picker. The
+canvas cannot be the upload target — it is the drawing surface, and a click
+there has to paint a pixel.
+
+**Dropping only worked over two boxes.** The drop handlers were attached to
+the canvas view and the workspace's source pane:
+
+```js
+const targets = ["canvas-view", "source-pane"];
+```
+
+The source pane only exists while the workspace is open, and the canvas view
+is the middle of the screen. Releasing a photo over the sidebar, the top bar
+or the bottom bar did nothing — so you had to release it over exactly the
+right box, which is what "hit and miss where you release it" describes.
+
+**The whole page is now a drop target.** One handler on the document covers
+every release. The old per-target handlers had to go: the drop event
+bubbles, so leaving them in place would have loaded the image twice. The
+page outlines itself while a file is over it, so the drop is visible rather
+than silent.
+
+The drag handler checks that the drag actually carries files
+(`dataTransfer.types` contains `Files`), so a text drag or a drag inside the
+page does not turn the page into a drop target.
+
+**The empty state is a button now.** The workspace's source pane said
+"Drop an image here, or press I". It now says "Drop an image here, or
+**click to load**", and the words are a real button that opens the file
+picker.
+
+**How it is guarded now.** Three node checks read the source: there is
+always a way to load a photo, the drop handler is on the document, and the
+drag handler only accepts files. Six browser checks drive the real thing:
+the button exists, it is visible before any photo is loaded, it opens the
+file picker, the workspace's empty state offers a way in, the page
+highlights when a file is dragged over it, and a photo dropped on the
+**sidebar** loads — with its original filename, which is how the test knows
+the drop was handled once and not twice.
+
 ---
 
 ## 17. Risks & Known Behaviours
@@ -2936,12 +3015,12 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built, tested and live.** The source in this folder is the v2.0 r11 build,
+**Built, tested and live.** The source in this folder is the v2.0 r12 build,
 serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no
   dependencies, no framework.
-- 127 node checks, 85 end-to-end browser checks, 31 hostile-input checks,
+- 130 node checks, 92 end-to-end browser checks, 31 hostile-input checks,
   14 live-site checks — all passing, all dependency-free. Both browser
   suites also pass against the real shared CSP.
 - **Deployed and verified.** `./deploy.sh 192.168.100.100` installs the

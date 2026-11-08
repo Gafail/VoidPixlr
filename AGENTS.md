@@ -63,11 +63,11 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 127 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 130 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py            # 85 end-to-end checks
+python3 tests/browser/e2e.py            # 92 end-to-end checks
 python3 tests/browser/hostile.py        # 31 hostile-input checks
 ```
 
@@ -148,6 +148,14 @@ from what nginx will send.
   the sidebar and the bars, but the workspace's live preview is made *of*
   the palette. Without `VP.workspace.refresh()` in `renderAll()`, switching
   the palette leaves the preview showing the old palette's result.
+- **A control inside a hidden container is invisible.** The `Load…` button
+  lived in the reference strip, and the strip is hidden until a photo is
+  loaded — so before the first load there was nothing on screen to click.
+  The always-visible one is in the top bar (`load-photo`).
+- **The whole page takes a dropped photo.** The drop handler is on the
+  document, not on two boxes: the old per-target handlers had to go
+  because the drop event bubbles, and leaving them would load the image
+  twice.
 - **The layout diagnostic measures rectangles, not pixels.** It clips every
   box to its scroll containers before comparing them — an element hanging
   past a scrolling container's edge is clipped by it, so it cannot overlap
@@ -207,7 +215,7 @@ from what nginx will send.
   infrastructure for the container. Never copy or symlink this folder into
   another repository; a duplicate copy is a second thing to forget to update,
   and this project has already drifted once because of it.
-- Current deployed version: **v2.0 r11, live at http://192.168.100.100/**.
+- Current deployed version: **v2.0 r12, live at http://192.168.100.100/**.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.

@@ -315,6 +315,11 @@
   }
 
   function bindTopBar() {
+    /* The one way in that is always visible. The canvas paints, so it
+       cannot be the upload target; the top bar can. */
+    const loadPhoto = $("load-photo");
+    if (loadPhoto) loadPhoto.addEventListener("click", () => openFilePicker("file-image"));
+
     for (const value of Q.ALLOWED_SIZES) {
       const node = $("size-" + value);
       if (node) node.addEventListener("click", () => requestSize(value));
@@ -544,6 +549,10 @@
   function bindReferenceStrip() {
     const load = $("reference-load");
     if (load) load.addEventListener("click", () => openFilePicker("file-image"));
+
+    /* The empty state in the workspace is the other obvious place to click. */
+    const sourceLoad = $("ws-source-load");
+    if (sourceLoad) sourceLoad.addEventListener("click", () => openFilePicker("file-image"));
 
     const mode = $("reference-mode");
     if (mode) {
@@ -931,33 +940,70 @@
 
   /* --- drag and drop, and paste ------------------------------------------------------- */
 
-  function bindDragAndDrop() {
-    const targets = ["canvas-view", "source-pane"];
-    for (const id of targets) {
-      const node = $(id);
-      if (!node) continue;
-      node.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        node.classList.add("is-drop-target");
-      });
-      node.addEventListener("dragleave", () => {
-        node.classList.remove("is-drop-target");
-      });
-      node.addEventListener("drop", (event) => {
-        event.preventDefault();
-        node.classList.remove("is-drop-target");
-        const files = event.dataTransfer && event.dataTransfer.files;
-        if (!files) return;
-        for (const file of files) {
-          if (file.type && file.type.startsWith("image/")) {
-            loadImageFile(file);
-            return;
-          }
-        }
-        /* A non-image file is ignored, silently. */
-      });
+  /* Does this drag carry files? Text drags and drags inside the page must
+     not turn the whole page into a drop target. */
+  function dragHasFiles(event) {
+    const types = event.dataTransfer && event.dataTransfer.types;
+    if (!types) return false;
+    for (const type of types) {
+      if (type === "Files") return true;
     }
+    return false;
+  }
+
+  function bindDragAndDrop() {
+    /* The WHOLE page is a drop target.
+
+       It used to be the canvas view and the source pane, and the source
+       pane only exists while the workspace is open. Releasing a photo over
+       the sidebar, the top bar or the bottom bar did nothing at all, which
+       made dropping "hit and miss" — you had to release it over exactly
+       the right box, and the box was not where you let go.
+
+       One handler on the document covers every release. The drop event
+       bubbles, so the old per-target handlers would have loaded the image
+       twice; they are gone, and the highlight moved with them. */
+    let depth = 0;
+
+    document.addEventListener("dragenter", (event) => {
+      if (!dragHasFiles(event)) return;
+      event.preventDefault();
+      depth += 1;
+      document.body.classList.add("is-drop-target");
+    });
+
+    document.addEventListener("dragover", (event) => {
+      if (!dragHasFiles(event)) return;
+      /* Without this the browser refuses the drop and nothing happens. */
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+
+    document.addEventListener("dragleave", (event) => {
+      if (!dragHasFiles(event)) return;
+      depth -= 1;
+      if (depth <= 0) {
+        depth = 0;
+        document.body.classList.remove("is-drop-target");
+      }
+    });
+
+    document.addEventListener("drop", (event) => {
+      if (!dragHasFiles(event)) return;
+      event.preventDefault();
+      depth = 0;
+      document.body.classList.remove("is-drop-target");
+
+      const files = event.dataTransfer && event.dataTransfer.files;
+      if (!files) return;
+      for (const file of files) {
+        if (file.type && file.type.startsWith("image/")) {
+          loadImageFile(file);
+          return;
+        }
+      }
+      /* A non-image file is ignored, silently. */
+    });
   }
 
   function bindPaste() {

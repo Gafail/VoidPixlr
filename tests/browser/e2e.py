@@ -1025,6 +1025,107 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
         "the preview did not change when the palette did",
     )
 
+    section("click to upload, and drop it anywhere")
+
+    # Start from the state that matters: no photo loaded, so the reference
+    # strip is hidden.
+    fx.execute_script("VP.reference.clear();")
+    time.sleep(0.5)
+
+    # The photo is the way into the whole pipeline. Its button used to live
+    # in the reference strip, and the strip is hidden until a photo is
+    # loaded — so before your first load there was nothing to click.
+    upload = fx.execute_script(
+        """
+        const b = document.getElementById('load-photo');
+        if (!b) return { present: false };
+        const r = b.getBoundingClientRect();
+        return {
+          present: true,
+          visible: r.width > 1 && r.height > 1 && !b.closest('[hidden]'),
+          stripHidden: document.getElementById('reference-strip').hidden,
+          text: b.textContent,
+        };
+        """
+    )
+    check("there is a button to load a photo", upload.get("present") is True, "no button")
+    check(
+        "the load button is visible before any photo is loaded",
+        upload.get("visible") is True and upload.get("stripHidden") is True,
+        str(upload),
+    )
+
+    # Clicking it must reach the file input.
+    wired = fx.execute_script(
+        """
+        const input = document.getElementById('file-image');
+        const original = HTMLInputElement.prototype.click;
+        let clicked = null;
+        HTMLInputElement.prototype.click = function () { clicked = this.id; };
+        document.getElementById('load-photo').click();
+        HTMLInputElement.prototype.click = original;
+        return clicked;
+        """
+    )
+    check("the load button opens the file picker", wired == "file-image", str(wired))
+
+    # The empty state in the workspace is a click target too.
+    fx.execute_script("VP.workspace.open();")
+    time.sleep(0.6)
+    empty = fx.execute_script(
+        """
+        const button = document.getElementById('ws-source-load');
+        return { present: !!button, text: button ? button.textContent : null };
+        """
+    )
+    check(
+        "the workspace empty state offers a way in",
+        empty["present"] is True,
+        str(empty),
+    )
+
+    # And a photo dropped ANYWHERE on the page loads — not only over the
+    # canvas. Releasing it over the sidebar used to do nothing at all.
+    fx.execute_script("VP.workspace.close();")
+    time.sleep(0.4)
+
+    dropped = fx.execute_async_script(
+        """
+        const canvas = document.createElement('canvas');
+        canvas.width = 8;
+        canvas.height = 8;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ff0000';
+        context.fillRect(0, 0, 8, 8);
+        canvas.toBlob((blob) => {
+          const file = new File([blob], 'dropped.png', { type: 'image/png' });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          const target = document.getElementById('sidebar');
+          target.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
+          const highlighted = document.body.classList.contains('is-drop-target');
+          target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true }));
+          arguments[arguments.length - 1](highlighted);
+        }, 'image/png');
+        """
+    )
+    time.sleep(1.5)
+    check(
+        "the page highlights when a photo is dragged over it",
+        dropped is True,
+        "no highlight",
+    )
+    check(
+        "a photo dropped on the sidebar loads",
+        fx.execute_script("return VP.reference.hasImage();") is True,
+        fx.execute_script("return document.getElementById('alert-text').textContent;"),
+    )
+    check(
+        "the drop is handled once, not twice",
+        fx.execute_script("return VP.reference.state.source.name;") == "dropped.png",
+        fx.execute_script("return VP.reference.state.source.name;"),
+    )
+
     section("the limits on the load page")
     note = fx.execute_script("return document.getElementById('ws-load-note').textContent;")
     check(

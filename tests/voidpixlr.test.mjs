@@ -1718,6 +1718,72 @@ check("a palette change reaches the workspace preview", () => {
   );
 });
 
+check("there is always a way to load a photo", () => {
+  /* The Load button used to live in the reference strip, and the strip is
+     hidden until a photo is loaded — so before your first load there was
+     nothing on screen to click, and the only route in was dropping a file
+     over exactly the right box. */
+  const markup = read("index.html");
+  const app = read("js/app.js");
+
+  assert(
+    markup.includes('id="load-photo"'),
+    "the top bar has no button to load a photo",
+  );
+  assert(
+    app.includes('$("load-photo")'),
+    "the load-photo button is never wired up",
+  );
+  assert(
+    /load-photo[\s\S]{0,200}openFilePicker\("file-image"\)/.test(app),
+    "the load-photo button does not open the file picker",
+  );
+  /* The strip is hidden until there is an image, so the button cannot live
+     in there. */
+  assert(
+    /id="load-photo"[\s\S]{0,4000}<div class="reference-strip" id="reference-strip" hidden>/.test(
+      markup,
+    ) === false ||
+      markup.indexOf('id="load-photo"') < markup.indexOf('id="reference-strip"'),
+    "the load button is inside the hidden reference strip",
+  );
+});
+
+check("a photo can be dropped anywhere on the page", () => {
+  /* Releasing a photo over the sidebar, the top bar or the bottom bar did
+     nothing at all. The drop handler now lives on the document. */
+  const app = read("js/app.js");
+  const bind = app.slice(app.indexOf("function bindDragAndDrop("));
+  const body = bind.slice(0, bind.indexOf("\n  }"));
+
+  assert(
+    /document\.addEventListener\("drop"/.test(body),
+    "the drop handler is not on the document",
+  );
+  assert(
+    /document\.addEventListener\("dragover"/.test(body),
+    "dragover is not on the document, so a drop is refused",
+  );
+  /* The old per-target handlers would have loaded the image twice, because
+     the drop event bubbles. */
+  assert(
+    !/addEventListener\("drop"/.test(body.replace(/document\.addEventListener\("drop"/g, "")),
+    "there is still a second drop handler — the image would load twice",
+  );
+});
+
+check("the drop only accepts files", () => {
+  const app = read("js/app.js");
+  assert(
+    app.includes("function dragHasFiles("),
+    "the drag handler does not check that the drag carries files",
+  );
+  assert(
+    /dragHasFiles[\s\S]{0,200}Files/.test(app),
+    "the drag handler does not look for the Files type",
+  );
+});
+
 /* --- summary -------------------------------------------------------------- */
 
 console.log("");

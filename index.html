@@ -21,6 +21,13 @@
   <header class="top-bar" id="top">
     <span class="wordmark">VoidPixlr</span>
 
+    <!-- The photo is the way into the whole pipeline, so it gets a button
+         that is always there. It used to live in the reference strip, and
+         the strip is hidden until a photo is loaded — so before your first
+         load there was nothing to click, and dropping a file only worked
+         if you released it over exactly the right box. -->
+    <button type="button" class="btn" id="load-photo" title="Load a photo (I)">Load photo</button>
+
     <div class="group" role="group" aria-label="Canvas size">
       <span class="group-label">Size</span>
       <button type="button" class="btn size-btn" id="size-16">16</button>
@@ -324,7 +331,7 @@
         <div class="ws-pane">
           <div class="pane-head"><span class="pane-label">Source &middot; pan and zoom</span></div>
           <canvas id="source-pane"></canvas>
-          <p class="pane-empty" id="ws-source-empty">Drop an image here, or press I</p>
+          <p class="pane-empty" id="ws-source-empty">Drop an image here, or <button type="button" class="link-btn" id="ws-source-load">click to load</button></p>
         </div>
         <div class="ws-pane">
           <div class="pane-head"><span class="pane-label">Result &middot; live</span></div>

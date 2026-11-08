@@ -524,8 +524,31 @@ input[type="color"]::-moz-color-swatch {
   image-rendering: pixelated;
 }
 
-.canvas-view.is-drop-target .art-canvas {
+/* The whole page takes a dropped photo, so the whole page says so. */
+body.is-drop-target .canvas-region {
+  outline: 1px solid var(--accent);
+  outline-offset: -8px;
+}
+
+body.is-drop-target .art-canvas {
   border-color: var(--accent);
+}
+
+/* A button that reads as a link: it is an action inside a sentence. */
+.link-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: var(--fg);
 }
 
 /* ── The Image workspace ───────────────────────────────────────────────────── */
