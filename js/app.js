@@ -394,6 +394,14 @@
        The current zoom is kept if the canvas still fits; otherwise it
        steps down to the largest that does. */
     VP.canvas.setScale(VP.canvas.scaleForSize());
+    /* The grid over the photo is the canvas's size, so it has just changed
+       shape. It re-fits itself and the photo is re-centred on it —
+       otherwise the grid keeps the cell size it had, grows off the bottom
+       of the pane, and half of what is converted is out of sight. */
+    if (VP.workspace.isOpen()) {
+      VP.workspace.updateCellSize(true);
+      VP.workspace.recentreSource();
+    }
     autosave();
     renderAll();
   }
@@ -1395,6 +1403,7 @@
       if (VP.workspace.isOpen()) VP.workspace.refresh();
     };
 
+    VP.menu.init();
     VP.workspace.init();
     watchConfirmations();
     VP.workspace.state.panX = state.prefs.srcPanX || 0;

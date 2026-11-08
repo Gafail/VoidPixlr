@@ -25,12 +25,18 @@ anywhere.**
   every hue has a ramp to shade with. Build your own at 16, 32 or 64.
 - **Reference images.** Drop a photo on the canvas and trace it under a grid
   overlay, in `Under` or `Over` mode, at any opacity.
-- **The pipeline.** Frame a photo under a fixed grid by panning and zooming,
-  adjust its levels and saturation, pull a 16/32/64 palette out of it, tune
-  that palette for sprites, and convert it to pixel art with cell averaging
-  and four matching methods. Every control re-renders the result while you
-  drag it — on the canvas itself, in the same canvas you draw in, with the
-  photo and the artwork side by side and each on its own zoom.
+- **The pipeline.** Frame a photo under a grid by panning and zooming, adjust
+  its levels and saturation, pull a 16/32/64 palette out of it, tune that
+  palette for sprites, and convert it to pixel art with cell averaging and
+  four matching methods. Every control re-renders the result while you drag
+  it — on the canvas itself, in the same canvas you draw in, with the photo
+  and the artwork side by side and each on its own zoom.
+- **The grid is a view of its own.** It has a zoom — down to a single pixel,
+  so a 512×512 grid fits on the screen — and a pan, and neither one touches
+  the photo's zoom or pan. `Fit` fits the whole grid in the pane.
+- **One menu, on the left.** Palette, colours, adjustments, extraction and
+  conversion are five sections that drop open, and the colours are a
+  pop-over. Nothing is open until you want it.
 - **Import and export.** PNG snapped to the palette, JSON round-trips,
   v1 files still load.
 
@@ -80,10 +86,10 @@ inside this folder.
 ## Testing
 
 ```bash
-node tests/voidpixlr.test.mjs        # 148 logic checks
+node tests/voidpixlr.test.mjs        # 151 logic checks
 
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py          # 94 end-to-end checks in a real Firefox
+python3 tests/browser/e2e.py          # 116 end-to-end checks in a real Firefox
 python3 tests/browser/hostile.py      # 31 hostile-input checks
 ```
 

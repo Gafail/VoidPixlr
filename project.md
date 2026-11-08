@@ -275,6 +275,29 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >      and warm highlights. A **hue-coverage test** enforces the balance
 >      rather than asserting it.
 
+> - **r14 (2026-11-08)** — **one menu, and a grid you can actually
+>   see.** Two complaints, two answers:
+>
+>   1. **There was one menu too many** (§4.2, §4.3.1, §4.6). The palette
+>      had a column of its own on the far left, and the Image mode brought
+>      a *second* column of controls beside it — both open at once, so the
+>      screen was a wall of sliders before anything had been drawn. Now
+>      there is **one menu, on the left**, and everything in it **drops
+>      open**: Palette, Colours, Adjust, Extract, Convert. The centre
+>      holds the photo and the canvas and nothing else. The colours are a
+>      **pop-over** rather than a section, because a sixty-four swatch
+>      grid is taller than the whole menu and is wanted for a moment at a
+>      time rather than all the time.
+>   2. **The grid could not be seen** (§8.7.2, §8.7.3). The cell size had
+>      a **floor of four pixels**, so a 256-cell grid was always 1024
+>      pixels across and a 512-cell grid was 2048 — the grid ran off the
+>      bottom of the screen, and there was no way to see all of it or to
+>      move it. The grid is now **a view of its own**: it has a **zoom**
+>      (the size of one cell, down to one pixel) and a **pan**, and
+>      neither one touches the photo's zoom or pan. `Fit` fits the whole
+>      grid in the pane. A cell can now be one pixel across, so every
+>      canvas size fits — including 512×512, which never could.
+
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
 network" spine — but adds the capabilities that make it a tool rather than a
@@ -412,7 +435,7 @@ Why the distinction is worth stating plainly:
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
   row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r13)
+- **Version:** 2.0 (revision r14)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
   10-minute doodles to serious sprite work and photo tracing.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -664,20 +687,53 @@ A thin strip under the top bar, only visible when a reference is loaded:
 The strip is a row, not a panel. When no reference is loaded the row is
 hidden entirely — the tool shows nothing it has nothing to show.
 
-### 4.2 Left Sidebar (~200px)
-- Palette name selector (dropdown of saved palettes + built-ins).
-- Swatch grid — **4 columns**, 30×30 px tiles, with a 2px accent outline on the
-  active swatch. The grid **scrolls vertically** inside the sidebar: a
-  64-colour palette is 16 rows and will not fit on a 1024 px screen.
-- An **eraser tile** at the top of the grid, visually distinct (diagonal slash).
-  Its index is `-1` in the active palette but it is **not** a palette entry.
+### 4.2 The menu (~268px, on the left)
+
+**One column, and everything in it drops open.** There used to be two
+columns of controls — the palette on the far left, and the Image mode's
+controls beside it — and they were both open at the same time. The screen
+was a wall of sliders before anything had been drawn.
+
+The menu is a scrolling column with a **pinned footer**, and it holds five
+sections, each of which is a header that opens a body. Only the headers are
+on screen until a section is wanted:
+
+| Section | Opens |
+|---|---|
+| **Palette** | The palette selector (a dropdown of saved palettes and the built-ins), the name field, `Save` / `Copy` / `Delete`, and **`Generate from image…`** (§5.4). |
+| **Colours** | A **pop-over**, not a body — see below. |
+| **Adjust** | The source adjustments (§8.7.4). Image mode only. |
+| **Extract** | The palette extraction and tuning (§5.4, §5.5). Image mode only. |
+| **Convert** | The target readout, the sample method and the match method (§8.8). Image mode only. |
+
+Each header carries the one fact worth knowing without opening anything: the
+palette's name, the colour count, the adjustment state, the extract count,
+the target size. The sections are independent — two of them can be open at
+once, because a conversion usually wants the adjustments and the target
+size together.
+
+**The colours are a pop-over.** A sixty-four swatch grid is sixteen rows —
+taller than the whole menu — and it is wanted for a moment at a time rather
+than all the time. The `Colours` header opens a floating panel beside it,
+over the canvas, holding:
+
+- The **swatch grid** — 4 columns, 30×30 px tiles, with a 2px accent
+  outline on the active swatch. The grid **scrolls vertically** inside the
+  pop-over.
+- An **eraser tile** at the top of the grid, visually distinct (diagonal
+  slash). Its index is `-1` in the active palette but it is **not** a
+  palette entry.
 - Below the grid: `+ Add colour` (opens the colour picker), `⇅ Reorder`
   (drag-to-reorder), `🗑 Remove colour`.
-- Palette actions: `Save palette`, `Duplicate`, `Delete` (built-ins cannot be
-  deleted, only duplicated and edited into a copy).
-- **`Generate from image…`** — opens the palette generator (§5.4). It reads the
-  session image: the currently framed region if the workspace is open, the
-  whole image otherwise. Otherwise it opens the file picker.
+- The **active colour**: a colour input and a hex field.
+
+The pop-over is positioned in script from the button that opened it, so it
+can never open off the edge of the window, and it closes on a click
+anywhere else or on `Escape`. It is **not** a native `<dialog>`.
+
+**The pinned footer** carries `Apply to canvas` (§4.6) and the workspace's
+status line. It is never scrolled out of reach and never sliced in half by
+the edge.
 
 ### 4.3 Centre
 - The canvas, centred in the remaining space, inside a scrollable region.
@@ -689,16 +745,17 @@ hidden entirely — the tool shows nothing it has nothing to show.
   zoom readout and a `Fit` button. The header is a bar, not an overlay on
   the artwork.
 
-### 4.3.1 The three columns of the Image mode
+### 4.3.1 The columns of the Image mode
 
 The centre is one row of columns, and the canvas is always the last of
 them, so the layout never reorders itself under the user:
 
-    [ controls ] [ source ] [ canvas ]
+    [ source ] [ canvas ]
 
-In the Draw mode the first two are hidden and the canvas has the room to
-itself. In the Image mode the controls, the photo and the canvas sit side
-by side — and the canvas is **the same canvas**, not a second one.
+In the Draw mode the source is hidden and the canvas has the room to
+itself. **The controls are not a column**: they are in the menu, on the
+left, where every other control lives (§4.2). The centre holds the photo
+and the canvas and nothing else.
 
 ### 4.4 Bottom Bar (~48px)
 Left-aligned within the centre column: `Export PNG` · `Export JSON` ·
@@ -715,23 +772,24 @@ in v2 (the UI is legible enough without them). No logo image.
 ### 4.6 The Image workspace
 
 Toggled by the `Image` button in the top bar. It does **not** replace the
-canvas: it adds the source pane and the control column *beside* the canvas,
-and the canvas becomes the live result. The palette sidebar stays visible, so
-palette changes are seen live while you work.
+canvas: it adds the source pane beside the canvas, and the canvas becomes
+the live result. The menu stays visible, and the Image mode's own controls
+**join the menu** as three more sections — Adjust, Extract and Convert
+(§4.2). The centre is left with the photo and the canvas.
 
 ```
-┌──────────────┬──────────────────────────────┬───────────────────┐
-│ SOURCE       │  source image, pannable and  │  the canvas: the  │
-│  adjustments │  zoomable, with the fixed    │  artwork, with the │
-│              │  grid overlay                │  live conversion   │
-├──────────────┤                              │  drawn over it     │
-│ PALETTE      │                              │                   │
-│  extract     │                              │  zoom slider      │
-│  tune        │                              │  Fit              │
-├──────────────┤                              │                   │
-│ CONVERT      │                              │                   │
-│  method      │                              │                   │
-└──────────────┴──────────────────────────────┴───────────────────┘
+┌────────────┬──────────────────────────────┬───────────────────┐
+│ MENU       │  source image, pannable and  │  the canvas: the  │
+│            │  zoomable, under a grid that  │  artwork, with the │
+│  Palette   │  has a zoom and a pan of     │  live conversion   │
+│  Colours   │  its own                     │  drawn over it     │
+│  Adjust    │                              │                   │
+│  Extract   │  GRID  ▭ 4px  Fit            │  zoom slider       │
+│  Convert   │  PHOTO ▭ 1.2×  Fit  Pixel    │  Fit               │
+├────────────┤                              │                   │
+│ Apply to   │                              │                   │
+│ canvas     │                              │                   │
+└────────────┴──────────────────────────────┴───────────────────┘
 ```
 
 **There is one art canvas.** The workspace used to hold a second canvas
@@ -741,41 +799,39 @@ drawn from the same grid, at the canvas's own zoom. One size, one grid, one
 canvas — the Draw mode and the Image mode are two views of the same artwork,
 not two canvases that have to be kept in step.
 
-**Each pane zooms on its own.** The source pane and the canvas each have a
-**zoom slider** in their own header, and neither one moves the other.
-Zooming the photo does not zoom the pixel art. The sliders are logarithmic:
-the top of the range is where the detail is, and a linear slider would spend
-most of its travel on the two or three zoom levels nobody uses.
+**Each view zooms on its own — and there are three of them.** The source
+pane and the canvas each have a **zoom slider** in their own header, and
+neither one moves the other. Zooming the photo does not zoom the pixel art.
+The sliders are logarithmic: the top of the range is where the detail is,
+and a linear slider would spend most of its travel on the two or three zoom
+levels nobody uses.
 
-**Block 1 — SOURCE.**
+**The grid is a third view, and it has its own zoom and its own pan**
+(§8.7.2, §8.7.3). The grid is not pinned to the corner of the pane, and it
+is not slaved to the photo's zoom: it decides *which* part of the photo is
+converted, and the photo decides *how* that part is magnified. The source
+pane's header therefore carries two labelled groups — `GRID` and `PHOTO` —
+because two unlabelled sliders side by side are a coin toss.
 
-- *Adjustments*: black point, white point, brightness, contrast, saturation,
-  hue shift, greyscale, and an `Auto levels` button (§8.7.4).
-- *Framing* lives in the pane's header, with the thing it frames: a zoom
-  slider, the zoom readout, `Fit` and `Pixel`. The pane pans by dragging and
-  zooms on the wheel (§8.7.3).
-- The source pane draws the **adjusted** image, so what you see is what gets
-  converted.
+**Adjust** — the source adjustments: black point, white point, brightness,
+contrast, saturation, hue shift, greyscale, and an `Auto levels` button
+(§8.7.4). The framing lives in the pane's header, with the thing it frames
+(§8.7.3).
 
-**Block 2 — PALETTE.**
+**Extract** — colour count `16 / 32 / 64` (default 32), the `Extract`
+button, and the result count. Extraction reads the **framed region** — the
+same sampled grid the converter will match against — so the palette always
+describes the pixels that will be converted. Then *Tune*: saturation,
+brightness, contrast, hue shift and posterise sliders, plus presets (§5.5).
+The swatches preview the tuned palette live, and the pixel result
+re-renders as you drag (§8.8.4). `Apply` writes it to the target palette;
+`Cancel` discards.
 
-- *Extract*: colour count `16 / 32 / 64` (default 32), `Extract` button, and
-  the result count. Extraction reads the **framed region** — the same sampled
-  grid the converter will match against — so the palette always describes the
-  pixels that will be converted.
-- *Tune*: saturation, brightness, contrast, hue shift, posterise sliders, plus
-  presets (§5.5). The swatches in the sidebar preview the tuned palette live,
-  and the pixel result re-renders as you drag (§8.8.4). `Apply` writes it to
-  the target palette; `Cancel` discards.
-
-**Block 3 — CONVERT.**
-
-- *Target*: the canvas's own size, shown as a readout. **The workspace has
-  no size of its own** — the grid it converts into is the canvas's grid, so
-  there is one answer to "how big is the artwork", not two.
-- Sample method: `Average` / `Nearest` (§8.8.1).
-- Match method: `Flat` / `Bayer` / `Floyd` / `Clustered` (§8.8.2).
-- `Apply to canvas`.
+**Convert** — the target is the canvas's own size, shown as a readout. **The
+workspace has no size of its own** — the grid it converts into is the
+canvas's grid, so there is one answer to "how big is the artwork", not two.
+Then the sample method `Average` / `Nearest` (§8.8.1) and the match method
+`Flat` / `Bayer` / `Floyd` / `Clustered` (§8.8.2).
 
 The live result is drawn **over the artwork**, so the artwork underneath is
 still there while you work. `Apply to canvas` writes the result into the
@@ -789,12 +845,17 @@ artwork and only the artwork.
   modal. It appears only when there is a reference to control.
 - The `never uploaded` label is permanent, not dismissible. It is the cheapest
   possible trust signal and it is load-bearing for this feature.
-- **The Image workspace is a mode, not a modal.** It is a third centre-region
-  view toggled from the top bar; the canvas and the palette sidebar remain
-  visible or return to their previous state when it closes.
+- **The Image workspace is a mode, not a modal.** It adds the source pane
+  beside the canvas, toggled from the top bar; the canvas and the menu
+  remain visible or return to their previous state when it closes.
+- **There is one menu, on the left.** The Image mode's controls are
+  sections in it, not a column of their own. The centre holds the photo
+  and the canvas and nothing else.
+- **The colours are a pop-over.** A sixty-four swatch grid does not belong
+  in a column that is always on screen.
 - **The workspace is non-destructive until `Apply to canvas`.** Every stage
   is a preview.
-- The swatch grid is 4 columns and scrolls; the sidebar is a fixed 200 px.
+- The swatch grid is 4 columns and scrolls; the menu is a fixed 268 px.
 - "Forget everything" lives in the bottom bar as a dimmed text button, not in
   a settings panel — it must be reachable in one click, because its whole job
   is to be findable when someone wants their data gone.
@@ -1185,6 +1246,10 @@ At 256×256 a full `artBuffer` repaint is 65 536 `fillRect` calls — roughly
 - **The source pane has its own zoom** — screen pixels per *source* pixel,
   0.05 to 32, on its own logarithmic slider. The two zooms are separate
   state: zooming the photo does not zoom the pixel art (§4.6).
+- **The grid has a third zoom of its own** — the size of one cell on
+  screen, from 1 to 64 pixels, on its own logarithmic slider. A cell
+  smaller than one pixel cannot be seen, so that is the floor. This zoom
+  moves the grid and nothing else (§8.7.2).
 - Zoom is centred on the canvas, not the pointer. A pointer-centred zoom needs
   scroll-anchoring maths for marginal benefit at these sizes; the canvas
   scrolls anyway.
@@ -1571,24 +1636,37 @@ arbitrary corner (§1.2).
   path.
 
 #### 8.7.2 The grid overlay
-- The overlay is **screen-anchored**: `size × size` cells anchored at the
-  **top-left of the source pane** (8 px inset). It does not move when the
-  image moves.
-- Cell size on screen: `cellPx = clamp(floor(min(paneW, paneH) / size), 4, 32)`.
-  When `size × cellPx` exceeds the pane, the pane scrolls.
-- **`cellPx` is computed when the grid size changes, and then held steady.**
-  It is *not* recomputed on every pane resize. This matters: the output is
-  "the image content beneath the overlay", and the overlay's size in screen
-  pixels decides how much of the image that is. If `cellPx` tracked the
-  window, enlarging the browser would silently change what the conversion
-  samples — the same picture, converted differently, for no visible reason.
-  A user who resizes the window and presses `Apply to canvas` again must
-  get the same sprite.
+- The overlay is **the canvas's grid**, at the canvas's own size: `width ×
+  height` cells. It is not a square and it has no size of its own.
+- It has **its own position and its own size on screen**. The cell size is
+  `cellPx`, from 1 to 64 pixels, and the overlay's top-left corner sits at
+  `(gridX, gridY)` in the pane. Neither is slaved to the photo's zoom or
+  pan.
+- **The cell size has a floor of one pixel, not four.** This is the fix
+  for "the grid runs off the bottom of the screen and I cannot see it":
+  with a floor of four, a 256-cell grid was always 1024 pixels across and
+  a 512-cell grid was 2048, so the grid could never be seen whole. At one
+  pixel per cell the whole grid fits at every canvas size.
+- **`cellPx` is computed when the grid size changes, and then held
+  steady.** It is *not* recomputed on every pane resize. This matters: the
+  output is "the image content beneath the overlay", and the overlay's size
+  in screen pixels decides how much of the image that is. If `cellPx`
+  tracked the window, enlarging the browser would silently change what the
+  conversion samples — the same picture, converted differently, for no
+  visible reason. A user who resizes the window and presses `Apply to
+  canvas` again must get the same sprite.
+- **A canvas resize re-fits the grid.** The grid is the canvas's size, so
+  when the canvas changes the grid has to be re-fitted and the photo
+  re-centred on it. Otherwise the grid keeps the cell size it had, grows
+  off the bottom of the pane, and half of what is converted is out of
+  sight.
 - The overlay is drawn over the image with 1 px grid lines. The area outside
   the overlay is dimmed with a flat `rgba(13,13,15,0.45)` wash, so the active
   region is unambiguous.
 - **The output is the image content beneath the overlay.** Output cell
-  `(col, row)` corresponds to overlay cell `(col, row)`.
+  `(col, row)` corresponds to overlay cell `(col, row)`. The sampler's
+  geometry carries the overlay's origin and cell size, and the photo's zoom
+  and pan, as four separate numbers (§8.8.3).
 
 #### 8.7.3 Moving and zooming
 
@@ -1600,6 +1678,14 @@ arbitrary corner (§1.2).
 | `Fit` | Zoom so the whole image is visible, centred. |
 | `Pixel` | One source pixel per grid cell, with the pan snapped to whole source pixels. |
 
+And the grid has its own set, in the same header:
+
+| Action | Binding |
+|---|---|
+| Grid zoom | The `GRID` slider, or `Shift`+wheel over the pane. The size of one cell, 1 to 64 pixels. |
+| Grid pan | `Shift`+drag in the source pane. |
+| `Fit` (grid) | Scale the cell so the **whole grid** fits the pane, and centre it. |
+
 - Zoom is **screen pixels per source pixel**, from 0.05× to 32×.
 - **Wheel zoom is anchored at the pointer** — the source pixel under the
   cursor stays under the cursor. Without this, zooming is unusable for
@@ -1609,6 +1695,9 @@ arbitrary corner (§1.2).
   least 10% of the pane stays covered.
 - The zoom and pan state is persisted with the preferences (§9.1), so the
   framing comes back with the photo on the next reload.
+- **The grid's pan is clamped** so that some of the grid always stays on
+  screen. A grid that can be dragged entirely out of view is a grid you
+  have lost. The photo's pan is clamped the same way, at 10% of the pane.
 
 #### 8.7.4 Source adjustments
 
@@ -3059,6 +3148,79 @@ no colour is repeated, and that the palettes are still nested. The spec's
 own tables are checked against the code, so the documentation cannot drift
 away from the build.
 
+### 16.13 One menu, and a grid you can see
+
+Two complaints, measured.
+
+**"The menu, the settings, etc. — it's all super clunky."** There were two
+columns of controls, not one. The palette had a column of its own on the far
+left, and the Image mode brought a *second* column beside it. Both were
+open at once, and both were open *permanently*: the Image mode's column
+carried six adjustment sliders, a tuning panel with five more sliders and
+five preset buttons, and two method pickers, all on screen before a single
+pixel was drawn. The palette column carried a sixty-four swatch grid — six
+teen rows, taller than the menu itself.
+
+The measure was the count of always-visible controls, and the answer was
+that the whole of §4.6 was on screen at all times.
+
+**Now there is one menu, on the left**, and it holds five sections, each of
+which is a header that opens a body. Only the headers are on screen until a
+section is wanted, and each header carries the one fact worth knowing
+without opening anything. The centre holds the photo and the canvas and
+nothing else — the Image mode's controls are three more sections in the
+same menu.
+
+**The colours are a pop-over.** They were the largest single thing on
+screen and the least often needed for more than a moment: a sixty-four
+swatch grid is sixteen rows, and picking a colour takes a second. It now
+floats over the canvas beside the button that opened it, positioned in
+script so it can never open off the edge of the window, and it closes on a
+click anywhere else or on `Escape`. It is still not a native `<dialog>`.
+
+**"The grids are still zooming the image — I want to zoom and adjust the
+view of the grid, so I can ensure I see everything."** The grid was
+**screen-anchored**: pinned to the top-left of the pane at a fixed cell
+size, and it did not move when the image moved. Its cell size had a **floor
+of four pixels**, so a 256-cell grid was always 1024 pixels across and a
+512-cell grid was 2048 — in a pane about 650 pixels wide. The grid ran off
+the bottom of the screen, and there was no way to see all of it, because
+there was no control that could make it smaller.
+
+Worse, the grid's size was computed **when the grid size changed**, and a
+canvas resize never told it — so growing the canvas grew the grid off the
+pane, silently.
+
+**The grid is now a view of its own.** It has a **zoom** (the size of one
+cell, from one pixel up) and a **pan**, and neither one touches the photo's
+zoom or pan. `Fit` scales the cell so the whole grid fits the pane, and
+centres it. `Shift`+drag moves the grid; `Shift`+wheel zooms it. The
+source pane's header carries two labelled groups — `GRID` and `PHOTO` —
+because two unlabelled sliders side by side are a coin toss.
+
+The floor of four pixels is gone; the floor is one, because a cell smaller
+than one pixel cannot be seen. The measured result, at every canvas size in
+a 616×732 pane:
+
+| Canvas | Cell | Grid | Verdict |
+|---|---|---|---|
+| 16×16 | 38 px | 608×608 | fits |
+| 32×32 | 19 px | 608×608 | fits |
+| 64×64 | 9 px | 576×576 | fits |
+| 128×128 | 4 px | 512×512 | fits |
+| 256×256 | 2 px | 512×512 | fits |
+| 512×512 | 1 px | 512×512 | fits |
+
+512×512 never fitted before, and never could.
+
+**How it is guarded now.** Three node checks read the source: the grid's
+origin and cell size are its own state and not the photo's; the cell size
+has no floor of four; and a canvas resize re-fits the grid. Six
+browser checks measure the result: the whole grid fits inside the pane, it
+is inside the pane rather than off its edge, a 256-cell grid fits, a cell
+can be smaller than four pixels, the grid's slider moves the grid, and the
+photo does not move when the grid does — nor zoom when the grid zooms.
+
 ---
 
 ## 17. Risks & Known Behaviours
@@ -3092,6 +3254,7 @@ away from the build.
 | **A palette change cannot be undone** | Palette is outside the undo stack | Accepted for v2; v2.1 candidate. |
 | **Right-drag on a trackpad** | Ambiguous two-finger gestures | The eraser tile and `E` are the primary paths. |
 | **An `ImageData` reaches `drawImage`** | Firefox refuses a non-drawable source | One helper, `toDrawable`, and a node test that fails if any `ImageData` is passed to `drawImage` (§16.9). |
+| **The grid cannot be seen** | A cell floor of four pixels made a 512-cell grid 2048 pixels across | The floor is one pixel and the grid has its own zoom and pan (§8.7.2). A diagnostic sweep measures the fit at every size (§16.13). |
 
 ---
 
@@ -3213,7 +3376,7 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built, tested and live.** The source in this folder is the v2.0 r13 build,
+**Built, tested and live.** The source in this folder is the v2.0 r14 build,
 serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no

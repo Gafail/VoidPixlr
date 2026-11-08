@@ -113,209 +113,254 @@
     </div>
   </div>
 
-  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <!-- ── The menu ─────────────────────────────────────────────────────────── -->
+  <!-- One column, on the left, and everything in it drops open. There used
+       to be two columns of controls — the palette on the far left and the
+       Image mode's controls beside it — and they were both open at once.
+       Now there is one menu, and a section stays shut until it is wanted.
+
+       The colours are a pop-over rather than a section: a sixty-four
+       swatch grid takes more room than the whole menu, and it is wanted
+       for a moment at a time, not all the time. -->
   <aside class="sidebar" id="sidebar">
-    <div class="side-block">
 
-      <section class="side-group">
-        <h2 class="side-title">Palette</h2>
-        <label class="side-label" for="palette-select">Use</label>
-        <select id="palette-select" class="select"></select>
+    <div class="menu" id="menu">
 
-        <label class="side-label" for="palette-name">Name</label>
-        <input type="text" id="palette-name" class="text-input" aria-label="Palette name" placeholder="palette name">
-      </section>
+      <!-- The palette. -->
+      <section class="menu-section" data-section="palette">
+        <button type="button" class="menu-head" id="palette-head" aria-expanded="true" aria-controls="menu-palette">
+          <span class="menu-head-label">Palette</span>
+          <span class="menu-head-meta" id="palette-summary">Void Palette</span>
+        </button>
+        <div class="menu-body" id="menu-palette">
+          <label class="side-label" for="palette-select">Use</label>
+          <select id="palette-select" class="select"></select>
 
-      <section class="side-group">
-        <h2 class="side-title">Colours</h2>
-        <div class="swatch-grid" id="swatch-grid"></div>
-        <p class="side-note" id="palette-count"></p>
-        <p class="side-note accent-note" id="palette-stage-note" hidden></p>
+          <label class="side-label" for="palette-name">Name</label>
+          <input type="text" id="palette-name" class="text-input" aria-label="Palette name" placeholder="palette name">
 
-        <div class="side-row wrap">
-          <button type="button" class="btn" id="palette-add">+ Add</button>
-          <button type="button" class="btn" id="palette-reorder">Reorder</button>
-          <button type="button" class="btn" id="palette-remove">Remove</button>
-        </div>
+          <div class="side-row wrap">
+            <button type="button" class="btn" id="palette-save">Save</button>
+            <button type="button" class="btn" id="palette-duplicate">Copy</button>
+            <button type="button" class="btn" id="palette-delete">Delete</button>
+          </div>
 
-        <label class="side-label" for="colour-input">Active colour</label>
-        <div class="side-row">
-          <input type="color" id="colour-input" aria-label="Pick a colour">
-          <input type="text" id="colour-hex" class="text-input hex-input" aria-label="Hex colour" placeholder="#rrggbb" spellcheck="false">
+          <button type="button" class="btn wide" id="palette-generate">Generate from image&hellip;</button>
+          <p class="side-note" id="sidebar-note"></p>
         </div>
       </section>
 
-      <section class="side-group">
-        <h2 class="side-title">Palette actions</h2>
-        <div class="side-row wrap">
-          <button type="button" class="btn" id="palette-save">Save</button>
-          <button type="button" class="btn" id="palette-duplicate">Copy</button>
-          <button type="button" class="btn" id="palette-delete">Delete</button>
-        </div>
-
-        <button type="button" class="btn wide" id="palette-generate">Generate from image&hellip;</button>
-        <p class="side-note" id="sidebar-note"></p>
+      <!-- The colours: a pop-over, not a panel. -->
+      <section class="menu-section" data-section="colours">
+        <button type="button" class="menu-head" id="colours-toggle" aria-expanded="false" aria-controls="colour-popover">
+          <span class="menu-head-label">Colours</span>
+          <span class="menu-head-meta">
+            <span class="menu-chip" id="colour-chip" aria-hidden="true"></span>
+            <span id="palette-count">16 colours</span>
+          </span>
+        </button>
       </section>
 
-    </div>
-  </aside>
+      <!-- The Image mode's controls. They live in the same menu as
+           everything else, and they only appear when the Image mode is on. -->
+      <div class="menu-group" id="menu-image" hidden>
 
-  <!-- ── Centre ───────────────────────────────────────────────────────────── -->
-  <!-- One canvas. The Image mode does not bring a second one: it brings the
-       source pane, and the canvas that was already there becomes the live
-       result. -->
-  <main class="centre" id="centre">
+        <section class="menu-section" data-section="adjust">
+          <button type="button" class="menu-head" aria-expanded="false" aria-controls="menu-adjust">
+            <span class="menu-head-label">Adjust</span>
+            <span class="menu-head-meta" id="adjust-summary">as loaded</span>
+          </button>
+          <div class="menu-body" id="menu-adjust" hidden>
+            <p class="side-note" id="ws-load-note"></p>
 
-    <!-- The controls of the Image mode. -->
-    <div class="workspace" id="workspace" hidden>
-
-      <div class="ws-blocks">
-        <!-- The scrolling part. The primary action is pinned below it, so it
-             can never be scrolled out of reach or sliced in half. -->
-        <div class="ws-scroll">
-
-        <section class="ws-block">
-          <h2 class="ws-title">Source</h2>
-          <p class="ws-note" id="ws-load-note"></p>
-
-          <div class="ws-slider">
-            <label for="ws-black">Black point <span class="readout" id="ws-black-value">0%</span></label>
-            <input type="range" id="ws-black" min="0" max="40" value="0">
-          </div>
-          <div class="ws-slider">
-            <label for="ws-white">White point <span class="readout" id="ws-white-value">100%</span></label>
-            <input type="range" id="ws-white" min="60" max="100" value="100">
-          </div>
-          <div class="ws-slider">
-            <label for="ws-brightness">Brightness <span class="readout" id="ws-brightness-value">100%</span></label>
-            <input type="range" id="ws-brightness" min="0" max="200" value="100">
-          </div>
-          <div class="ws-slider">
-            <label for="ws-contrast">Contrast <span class="readout" id="ws-contrast-value">100%</span></label>
-            <input type="range" id="ws-contrast" min="0" max="200" value="100">
-          </div>
-          <div class="ws-slider">
-            <label for="ws-saturation">Saturation <span class="readout" id="ws-saturation-value">100%</span></label>
-            <input type="range" id="ws-saturation" min="0" max="200" value="100">
-          </div>
-          <div class="ws-slider">
-            <label for="ws-hue">Hue shift <span class="readout" id="ws-hue-value">0&deg;</span></label>
-            <input type="range" id="ws-hue" min="-180" max="180" value="0">
-          </div>
-          <div class="ws-row">
+            <div class="ws-slider">
+              <label for="ws-black">Black point <span class="readout" id="ws-black-value">0%</span></label>
+              <input type="range" id="ws-black" min="0" max="40" value="0">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-white">White point <span class="readout" id="ws-white-value">100%</span></label>
+              <input type="range" id="ws-white" min="60" max="100" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-brightness">Brightness <span class="readout" id="ws-brightness-value">100%</span></label>
+              <input type="range" id="ws-brightness" min="0" max="200" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-contrast">Contrast <span class="readout" id="ws-contrast-value">100%</span></label>
+              <input type="range" id="ws-contrast" min="0" max="200" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-saturation">Saturation <span class="readout" id="ws-saturation-value">100%</span></label>
+              <input type="range" id="ws-saturation" min="0" max="200" value="100">
+            </div>
+            <div class="ws-slider">
+              <label for="ws-hue">Hue shift <span class="readout" id="ws-hue-value">0&deg;</span></label>
+              <input type="range" id="ws-hue" min="-180" max="180" value="0">
+            </div>
+            <div class="ws-row">
               <label class="check"><input type="checkbox" id="ws-grey"> Greyscale</label>
+            </div>
+            <div class="ws-row wrap">
               <button type="button" class="btn" id="ws-auto-levels" title="Auto levels (L)">Auto levels</button>
               <button type="button" class="btn" id="ws-reset-adjust" title="Reset every adjustment">Reset all</button>
+            </div>
           </div>
         </section>
 
-        <section class="ws-block">
-          <h2 class="ws-title">Palette</h2>
-          <div class="ws-labelled">
-            <span class="panel-label">Colours</span>
-            <div class="ws-row">
-              <button type="button" class="btn" id="ws-count-16">16</button>
-              <button type="button" class="btn is-active" id="ws-count-32">32</button>
-              <button type="button" class="btn" id="ws-count-64">64</button>
-              <button type="button" class="btn" id="ws-extract">Extract</button>
+        <section class="menu-section" data-section="extract">
+          <button type="button" class="menu-head" aria-expanded="false" aria-controls="menu-extract">
+            <span class="menu-head-label">Extract</span>
+            <span class="menu-head-meta" id="extract-summary">32 colours</span>
+          </button>
+          <div class="menu-body" id="menu-extract" hidden>
+            <div class="ws-labelled">
+              <span class="panel-label">Colours</span>
+              <div class="ws-row">
+                <button type="button" class="btn" id="ws-count-16">16</button>
+                <button type="button" class="btn is-active" id="ws-count-32">32</button>
+                <button type="button" class="btn" id="ws-count-64">64</button>
+                <button type="button" class="btn" id="ws-extract">Extract</button>
+              </div>
             </div>
-          </div>
-          <p class="ws-note" id="ws-palette-status"></p>
+            <p class="ws-note" id="ws-palette-status"></p>
 
-          <div class="ws-tune" id="ws-tune" hidden>
-            <div class="ws-slider">
-              <label for="ws-tune-saturation">Saturation</label>
-              <input type="range" id="ws-tune-saturation" min="0" max="200" value="100">
-            </div>
-            <div class="ws-slider">
-              <label for="ws-tune-brightness">Brightness</label>
-              <input type="range" id="ws-tune-brightness" min="0" max="200" value="100">
-            </div>
-            <div class="ws-slider">
-              <label for="ws-tune-contrast">Contrast</label>
-              <input type="range" id="ws-tune-contrast" min="0" max="200" value="100">
-            </div>
-            <div class="ws-slider">
-              <label for="ws-tune-hue">Hue shift</label>
-              <input type="range" id="ws-tune-hue" min="-180" max="180" value="0">
-            </div>
-            <div class="ws-slider">
-              <label for="ws-tune-posterise">Posterise</label>
-              <input type="range" id="ws-tune-posterise" min="0" max="8" value="0">
-            </div>
-            <div class="ws-row wrap">
+            <div class="ws-tune" id="ws-tune" hidden>
+              <div class="ws-slider">
+                <label for="ws-tune-saturation">Saturation</label>
+                <input type="range" id="ws-tune-saturation" min="0" max="200" value="100">
+              </div>
+              <div class="ws-slider">
+                <label for="ws-tune-brightness">Brightness</label>
+                <input type="range" id="ws-tune-brightness" min="0" max="200" value="100">
+              </div>
+              <div class="ws-slider">
+                <label for="ws-tune-contrast">Contrast</label>
+                <input type="range" id="ws-tune-contrast" min="0" max="200" value="100">
+              </div>
+              <div class="ws-slider">
+                <label for="ws-tune-hue">Hue shift</label>
+                <input type="range" id="ws-tune-hue" min="-180" max="180" value="0">
+              </div>
+              <div class="ws-slider">
+                <label for="ws-tune-posterise">Posterise</label>
+                <input type="range" id="ws-tune-posterise" min="0" max="8" value="0">
+              </div>
+              <div class="ws-row wrap">
                 <button type="button" class="btn" id="ws-preset-pop">Sprite pop</button>
                 <button type="button" class="btn" id="ws-preset-muted">Muted</button>
                 <button type="button" class="btn" id="ws-preset-deep">Deep</button>
                 <button type="button" class="btn" id="ws-preset-pastel">Pastel</button>
                 <button type="button" class="btn" id="ws-preset-normalise">Normalise</button>
+              </div>
+              <p class="ws-note" id="ws-tune-status"></p>
             </div>
-            <p class="ws-note" id="ws-tune-status"></p>
-          </div>
 
-          <div class="ws-targets" id="ws-targets" hidden>
-            <div class="ws-row wrap">
+            <div class="ws-targets" id="ws-targets" hidden>
+              <div class="ws-row wrap">
                 <button type="button" class="btn" id="ws-target-replace">Replace active</button>
                 <button type="button" class="btn" id="ws-target-append">Append</button>
                 <button type="button" class="btn" id="ws-target-new">Save as new&hellip;</button>
                 <button type="button" class="btn" id="ws-stage-cancel">Cancel</button>
-            </div>
-            <div class="ws-row">
+              </div>
+              <div class="ws-row">
                 <input type="text" id="ws-target-name" class="text-input" placeholder="new palette name" aria-label="New palette name">
+              </div>
             </div>
           </div>
         </section>
 
-        <section class="ws-block">
-          <h2 class="ws-title">Convert</h2>
-          <div class="ws-labelled">
-            <span class="panel-label">Target</span>
-            <div class="ws-row">
-              <span class="readout" id="ws-target-size">32 &times; 32</span>
-              <span class="ws-note inline-note">the canvas size &mdash; set it in the top bar</span>
+        <section class="menu-section" data-section="convert">
+          <button type="button" class="menu-head" aria-expanded="false" aria-controls="menu-convert">
+            <span class="menu-head-label">Convert</span>
+            <span class="menu-head-meta" id="convert-summary">32 &times; 32</span>
+          </button>
+          <div class="menu-body" id="menu-convert" hidden>
+            <div class="ws-labelled">
+              <span class="panel-label">Target</span>
+              <div class="ws-row">
+                <span class="readout" id="ws-target-size">32 &times; 32</span>
+                <span class="ws-note inline-note">the canvas size &mdash; set it in the top bar</span>
+              </div>
             </div>
-          </div>
-          <div class="ws-labelled">
-            <span class="panel-label">Sample</span>
-            <div class="ws-row">
-              <button type="button" class="btn import-mode is-active" data-group="ws-sample" data-value="average" id="ws-sample-average">Average</button>
-              <button type="button" class="btn import-mode" data-group="ws-sample" data-value="nearest" id="ws-sample-nearest">Nearest</button>
+            <div class="ws-labelled">
+              <span class="panel-label">Sample</span>
+              <div class="ws-row">
+                <button type="button" class="btn import-mode is-active" data-group="ws-sample" data-value="average" id="ws-sample-average">Average</button>
+                <button type="button" class="btn import-mode" data-group="ws-sample" data-value="nearest" id="ws-sample-nearest">Nearest</button>
+              </div>
             </div>
-          </div>
-          <div class="ws-labelled">
-            <span class="panel-label">Match</span>
-            <div class="ws-row wrap">
-              <button type="button" class="btn import-mode is-active" data-group="ws-match" data-value="flat" id="ws-match-flat">Flat</button>
-              <button type="button" class="btn import-mode" data-group="ws-match" data-value="bayer" id="ws-match-bayer">Bayer</button>
-              <button type="button" class="btn import-mode" data-group="ws-match" data-value="floyd" id="ws-match-floyd">Floyd</button>
-              <button type="button" class="btn import-mode" data-group="ws-match" data-value="clustered" id="ws-match-clustered">Clustered</button>
+            <div class="ws-labelled">
+              <span class="panel-label">Match</span>
+              <div class="ws-row wrap">
+                <button type="button" class="btn import-mode is-active" data-group="ws-match" data-value="flat" id="ws-match-flat">Flat</button>
+                <button type="button" class="btn import-mode" data-group="ws-match" data-value="bayer" id="ws-match-bayer">Bayer</button>
+                <button type="button" class="btn import-mode" data-group="ws-match" data-value="floyd" id="ws-match-floyd">Floyd</button>
+                <button type="button" class="btn import-mode" data-group="ws-match" data-value="clustered" id="ws-match-clustered">Clustered</button>
+              </div>
             </div>
           </div>
         </section>
 
-        </div>
-
-        <!-- The pinned action. It never scrolls away and is never cut. -->
-        <div class="ws-foot">
-          <button type="button" class="btn wide accent-btn" id="ws-convert">Apply to canvas</button>
-          <p class="ws-note" id="ws-status"></p>
-        </div>
       </div>
     </div>
 
-    <!-- The photo. Its own zoom, which never touches the canvas's. -->
+    <!-- The pinned action. It never scrolls away and is never cut. -->
+    <div class="menu-foot" id="menu-foot" hidden>
+      <button type="button" class="btn wide accent-btn" id="ws-convert">Apply to canvas</button>
+      <p class="side-note" id="ws-status"></p>
+    </div>
+
+    <!-- The colour picker. It floats over the canvas instead of taking room
+         in the menu, and it is positioned in script so it can never open
+         off the edge of the window. -->
+    <div class="popover" id="colour-popover" hidden aria-label="Colour picker">
+      <div class="swatch-grid" id="swatch-grid"></div>
+      <p class="side-note accent-note" id="palette-stage-note" hidden></p>
+
+      <div class="side-row wrap">
+        <button type="button" class="btn" id="palette-add">+ Add</button>
+        <button type="button" class="btn" id="palette-reorder">Reorder</button>
+        <button type="button" class="btn" id="palette-remove">Remove</button>
+      </div>
+
+      <label class="side-label" for="colour-input">Active colour</label>
+      <div class="side-row">
+        <input type="color" id="colour-input" aria-label="Pick a colour">
+        <input type="text" id="colour-hex" class="text-input hex-input" aria-label="Hex colour" placeholder="#rrggbb" spellcheck="false">
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Centre ───────────────────────────────────────────────────────────── -->
+  <!-- One canvas. The Image mode does not bring a second one: it brings the
+       source pane, and the canvas that was already there becomes the live
+       result. The controls live in the menu, not in a column of their own. -->
+  <main class="centre" id="centre">
+
+    <!-- The photo. Its own zoom, which never touches the canvas's, and its
+         own grid, which never touches the photo's. -->
     <div class="ws-pane" id="ws-source-pane" hidden>
       <div class="pane-head">
         <span class="pane-label">Source</span>
         <span class="pane-tools">
-          <input type="range" id="ws-zoom" min="0" max="100" value="50" aria-label="Source zoom">
-          <span class="readout" id="ws-zoom-readout">1&times;</span>
-          <button type="button" class="btn" id="ws-fit" title="Fit the photo to the grid">Fit</button>
-          <button type="button" class="btn" id="ws-pixel" title="One photo pixel per cell">Pixel</button>
+          <span class="group" role="group" aria-label="Grid view">
+            <span class="group-label">Grid</span>
+            <input type="range" id="grid-zoom" min="0" max="100" value="50" aria-label="Grid zoom">
+            <span class="readout" id="grid-zoom-readout">16px</span>
+            <button type="button" class="btn" id="grid-fit" title="Fit the whole grid in the pane — Shift+drag moves the grid, Shift+wheel zooms it">Fit</button>
+          </span>
+          <span class="group" role="group" aria-label="Photo zoom">
+            <span class="group-label">Photo</span>
+            <input type="range" id="ws-zoom" min="0" max="100" value="50" aria-label="Source zoom">
+            <span class="readout" id="ws-zoom-readout">1&times;</span>
+            <button type="button" class="btn" id="ws-fit" title="Fit the photo to the grid">Fit</button>
+            <button type="button" class="btn" id="ws-pixel" title="One photo pixel per cell">Pixel</button>
+          </span>
         </span>
       </div>
       <canvas id="source-pane"></canvas>
-      <p class="pane-empty" id="ws-source-empty">Drop an image here, or <button type="button" class="link-btn" id="ws-source-load">click to load</button></p>
+      <p class="pane-empty" id="ws-source-empty">Drop an image here, or <button type="button" class="link-btn" id="ws-source-load">click to load</button><br><span class="pane-hint">Shift+drag moves the grid</span></p>
     </div>
 
     <!-- The artwork. In the Image mode this is where the live conversion
@@ -364,6 +409,7 @@
 <script src="js/reference.js"></script>
 <script src="js/io.js"></script>
 <script src="js/workspace.js"></script>
+<script src="js/menu.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -586,6 +586,17 @@
     const count = document.getElementById("palette-count");
     if (count) count.textContent = colours.length + " colours";
 
+    /* The menu's header carries the two things worth knowing without
+       opening anything: which palette is in use, and what colour the
+       active swatch is. */
+    const chip = document.getElementById("colour-chip");
+    if (chip) {
+      chip.style.background = colours[state.activeIndex] || "transparent";
+    }
+
+    const summary = document.getElementById("palette-summary");
+    if (summary) summary.textContent = state.activeName || "palette";
+
     const addButton = document.getElementById("palette-add");
     if (addButton) {
       const full = colours.length >= 64;

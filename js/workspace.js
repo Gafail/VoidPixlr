@@ -38,12 +38,25 @@
   const SOURCE_ZOOM_MIN = 0.05;
   const SOURCE_ZOOM_MAX = 32;
 
+  /* The grid's own zoom range: the on-screen size of one cell, in pixels.
+     A cell smaller than one pixel cannot be seen, so that is the floor;
+     there is no ceiling beyond what the pane can usefully show. */
+  const GRID_CELL_MIN = 1;
+  const GRID_CELL_MAX = 64;
+
+  /* The grid and the photo are two separate views of the same thing. The
+     photo has a zoom and a pan; the grid has a zoom and a pan. Neither one
+     writes to the other, and the grid is what decides which part of the
+     photo is converted. */
   const state = {
     open: false,
     panX: 0,
     panY: 0,
     zoom: 1,
     cellPx: 16,
+    gridX: OVERLAY_INSET,
+    gridY: OVERLAY_INSET,
+    cellAuto: true,
     sampleMethod: "average",
     matchMethod: "flat",
     extractCount: 32,
@@ -71,11 +84,14 @@
   const el = {};
 
   function grab() {
-    el.workspace = document.getElementById("workspace");
+    el.workspace = document.getElementById("menu-image");
+    el.foot = document.getElementById("menu-foot");
     el.source = document.getElementById("source-pane");
     el.sourcePane = document.getElementById("ws-source-pane");
     el.zoomSlider = document.getElementById("ws-zoom");
     el.zoomReadout = document.getElementById("ws-zoom-readout");
+    el.gridSlider = document.getElementById("grid-zoom");
+    el.gridReadout = document.getElementById("grid-zoom-readout");
     el.status = document.getElementById("ws-status");
     el.paletteStatus = document.getElementById("ws-palette-status");
     el.loadNote = document.getElementById("ws-load-note");
@@ -83,6 +99,7 @@
     el.tune = document.getElementById("ws-tune");
     el.targets = document.getElementById("ws-targets");
     el.targetSize = document.getElementById("ws-target-size");
+    el.convertSummary = document.getElementById("convert-summary");
   }
 
   /* --- opening and closing ------------------------------------------------------ */
@@ -90,6 +107,7 @@
   W.open = function open() {
     state.open = true;
     if (el.workspace) el.workspace.hidden = false;
+    if (el.foot) el.foot.hidden = false;
     if (el.sourcePane) el.sourcePane.hidden = false;
     W.resizeCanvases();
     W.updateCellSize();
@@ -102,6 +120,7 @@
   W.close = function close() {
     state.open = false;
     if (el.workspace) el.workspace.hidden = true;
+    if (el.foot) el.foot.hidden = true;
     if (el.sourcePane) el.sourcePane.hidden = true;
     /* The live conversion belongs to the Image mode. Closing it takes the
        preview off the canvas, so the Draw mode shows the artwork and only
@@ -138,25 +157,162 @@
     W.draw();
   };
 
-  /* The on-screen size of one grid cell.
+  /* The on-screen size of one grid cell, and where the grid sits.
 
-     It is derived from the pane size when the grid size changes, and then
-     held steady: if it tracked the pane on every resize, enlarging the
-     browser window would silently change what the conversion samples. */
-  W.updateCellSize = function updateCellSize() {
+     `cellPx` is the grid's own zoom: the size of one cell on screen. It is
+     derived from the pane size when the grid size changes, and then held
+     steady — if it tracked the pane on every resize, enlarging the browser
+     window would silently change what the conversion samples. The user can
+     set it by hand, and then it is theirs until the grid size changes.
+
+     `gridX` and `gridY` are the grid's own pan: where its top-left corner
+     sits in the pane. The photo has its own pan, and the two are separate:
+     the grid decides which part of the photo is converted, and the photo
+     decides how that part is magnified.
+
+     The old cell size had a floor of four pixels, so a 256-cell grid was
+     always 1024 pixels across and ran off the bottom of the pane. The floor
+     is now one pixel, which is as small as a cell can be and still be
+     seen.
+
+     `force` re-fits even when the user has taken the cell size by hand. It
+     is used when the *canvas* changes size: the grid is the canvas's grid,
+     so its shape has changed outright, and a cell size that fitted the old
+     shape can leave the new one running off the pane. */
+  W.updateCellSize = function updateCellSize(force) {
+    if (!state.cellAuto && !force) return;
     const pane = el.source;
     if (!pane) return;
     const width = pane.clientWidth;
     const height = pane.clientHeight;
+    if (!width || !height) return;
     const grid = gridSize();
     const fitted = Math.floor(Math.min(width / grid.width, height / grid.height));
-    state.cellPx = Math.min(32, Math.max(4, fitted || 16));
+    state.cellPx = Math.min(GRID_CELL_MAX, Math.max(GRID_CELL_MIN, fitted || GRID_CELL_MIN));
+    state.cellAuto = true;
+    W.centreGrid();
+  };
+
+  /* The grid's rectangle on screen: where it is and how big it is. */
+  function gridRect() {
+    const grid = gridSize();
+    return {
+      x: state.gridX,
+      y: state.gridY,
+      width: grid.width * state.cellPx,
+      height: grid.height * state.cellPx,
+    };
+  }
+
+  /* Centres the grid in the pane, at its current cell size. */
+  W.centreGrid = function centreGrid() {
+    const pane = el.source;
+    if (!pane) return;
+    const rect = gridRect();
+    state.gridX = Math.round((pane.clientWidth - rect.width) / 2);
+    state.gridY = Math.round((pane.clientHeight - rect.height) / 2);
+  };
+
+  /* Fits the whole grid into the pane and centres it. This is the button
+     that answers "I cannot see all of it". */
+  W.fitGrid = function fitGrid() {
+    const pane = el.source;
+    if (!pane) return;
+    const width = pane.clientWidth;
+    const height = pane.clientHeight;
+    if (!width || !height) return;
+    const grid = gridSize();
+    const fitted = Math.floor(Math.min(width / grid.width, height / grid.height));
+    state.cellPx = Math.min(GRID_CELL_MAX, Math.max(GRID_CELL_MIN, fitted || GRID_CELL_MIN));
+    state.cellAuto = true;
+    W.centreGrid();
+    state.sampleDirty = true;
+    W.draw();
+    W.syncGridControls();
+    W.requestPreview();
+  };
+
+  /* Sets the cell size by hand, keeping the middle of the grid where it
+     was so the grid grows out of its centre rather than off its corner. */
+  W.setGridCell = function setGridCell(pixels) {
+    const next = Math.min(GRID_CELL_MAX, Math.max(GRID_CELL_MIN, Math.round(pixels)));
+    if (next === state.cellPx) return;
+    const grid = gridSize();
+    const oldWidth = grid.width * state.cellPx;
+    const oldHeight = grid.height * state.cellPx;
+    const centreX = state.gridX + oldWidth / 2;
+    const centreY = state.gridY + oldHeight / 2;
+
+    state.cellPx = next;
+    state.cellAuto = false;
+    state.gridX = Math.round(centreX - (grid.width * next) / 2);
+    state.gridY = Math.round(centreY - (grid.height * next) / 2);
+
+    W.clampGrid();
+    state.sampleDirty = true;
+    W.draw();
+    W.syncGridControls();
+    W.requestPreview();
+  };
+
+  /* The grid's pan is clamped so that some of it always stays on screen —
+     a grid that can be dragged entirely out of view is a grid you have
+     lost. */
+  W.clampGrid = function clampGrid() {
+    const pane = el.source;
+    if (!pane) return;
+    const rect = gridRect();
+    const visible = 24;
+    state.gridX = Math.min(
+      pane.clientWidth - visible,
+      Math.max(visible - rect.width, state.gridX)
+    );
+    state.gridY = Math.min(
+      pane.clientHeight - visible,
+      Math.max(visible - rect.height, state.gridY)
+    );
+  };
+
+  W.panGridBy = function panGridBy(dx, dy) {
+    state.gridX += dx;
+    state.gridY += dy;
+    W.clampGrid();
+    state.sampleDirty = true;
+    W.draw();
+    W.requestPreview();
+  };
+
+  /* Zooms the grid about a point on screen: the cell under the cursor
+     stays under the cursor. */
+  W.zoomGrid = function zoomGrid(factor, anchorX, anchorY) {
+    const old = state.cellPx;
+    const next = Math.min(
+      GRID_CELL_MAX,
+      Math.max(GRID_CELL_MIN, Math.round(old * factor))
+    );
+    if (next === old) return;
+
+    const ax = anchorX === undefined ? 0 : anchorX;
+    const ay = anchorY === undefined ? 0 : anchorY;
+    const cellX = (ax - state.gridX) / old;
+    const cellY = (ay - state.gridY) / old;
+
+    state.cellPx = next;
+    state.cellAuto = false;
+    state.gridX = Math.round(ax - cellX * next);
+    state.gridY = Math.round(ay - cellY * next);
+
+    W.clampGrid();
+    state.sampleDirty = true;
+    W.draw();
+    W.syncGridControls();
+    W.requestPreview();
   };
 
   function geometry(cellPx, cellPxY) {
     return {
-      originX: OVERLAY_INSET,
-      originY: OVERLAY_INSET,
+      originX: state.gridX,
+      originY: state.gridY,
       cellPx,
       cellPxY: cellPxY === undefined ? cellPx : cellPxY,
       zoom: state.zoom,
@@ -194,47 +350,49 @@
     }
 
     const grid = gridSize();
-    const overlayWidth = grid.width * state.cellPx;
-    const overlayHeight = grid.height * state.cellPx;
-    const overlayRight = OVERLAY_INSET + overlayWidth;
-    const overlayBottom = OVERLAY_INSET + overlayHeight;
+    const rect = gridRect();
+    const left = rect.x;
+    const top = rect.y;
+    const right = rect.x + rect.width;
+    const bottom = rect.y + rect.height;
 
     /* The area outside the overlay is washed out, so the active region is
        unambiguous. The wash is drawn as four rectangles around the overlay
        rather than over the whole pane and then erased, because erasing would
        take the image with it. */
     context.fillStyle = "rgba(13,13,15,0.45)";
-    context.fillRect(0, 0, width, OVERLAY_INSET);
-    context.fillRect(0, overlayBottom, width, Math.max(0, height - overlayBottom));
-    context.fillRect(0, OVERLAY_INSET, OVERLAY_INSET, overlayHeight);
-    context.fillRect(overlayRight, OVERLAY_INSET, Math.max(0, width - overlayRight), overlayHeight);
+    context.fillRect(0, 0, width, Math.max(0, top));
+    context.fillRect(0, bottom, width, Math.max(0, height - bottom));
+    context.fillRect(0, top, Math.max(0, left), rect.height);
+    context.fillRect(right, top, Math.max(0, width - right), rect.height);
 
     /* The grid overlay, in accent lines. */
     context.strokeStyle = "rgba(79,79,255,0.55)";
     context.lineWidth = 1;
     context.beginPath();
     for (let i = 1; i < grid.width; i += 1) {
-      const x = Math.round(OVERLAY_INSET + i * state.cellPx) + 0.5;
-      context.moveTo(x, OVERLAY_INSET);
-      context.lineTo(x, OVERLAY_INSET + overlayHeight);
+      const x = Math.round(left + i * state.cellPx) + 0.5;
+      context.moveTo(x, top);
+      context.lineTo(x, bottom);
     }
     for (let i = 1; i < grid.height; i += 1) {
-      const y = Math.round(OVERLAY_INSET + i * state.cellPx) + 0.5;
-      context.moveTo(OVERLAY_INSET, y);
-      context.lineTo(OVERLAY_INSET + overlayWidth, y);
+      const y = Math.round(top + i * state.cellPx) + 0.5;
+      context.moveTo(left, y);
+      context.lineTo(right, y);
     }
     context.stroke();
 
     context.strokeStyle = "rgba(79,79,255,0.9)";
     context.strokeRect(
-      Math.round(OVERLAY_INSET) + 0.5,
-      Math.round(OVERLAY_INSET) + 0.5,
-      overlayWidth,
-      overlayHeight
+      Math.round(left) + 0.5,
+      Math.round(top) + 0.5,
+      rect.width,
+      rect.height
     );
 
     if (el.sourceEmpty) el.sourceEmpty.hidden = !!image;
     W.syncZoomControls();
+    W.syncGridControls();
   };
 
   /* --- the zoom controls ---------------------------------------------------------- */
@@ -265,6 +423,31 @@
       Math.log(SOURCE_ZOOM_MIN) +
         t * (Math.log(SOURCE_ZOOM_MAX) - Math.log(SOURCE_ZOOM_MIN))
     );
+  }
+
+  /* The grid's zoom: the size of one cell on screen, from one pixel to
+     sixty-four. The slider is logarithmic, because the interesting part of
+     that range is at the small end — a cell of two pixels and a cell of
+     thirty-two are not two steps apart. */
+  W.syncGridControls = function syncGridControls() {
+    if (el.gridReadout) {
+      el.gridReadout.textContent = state.cellPx + "px";
+    }
+    if (el.gridSlider && document.activeElement !== el.gridSlider) {
+      el.gridSlider.value = String(cellToSlider(state.cellPx));
+    }
+  };
+
+  function cellToSlider(pixels) {
+    const value = Math.min(GRID_CELL_MAX, Math.max(GRID_CELL_MIN, pixels));
+    const t = Math.log(value) / Math.log(GRID_CELL_MAX);
+    return Math.round(t * 100);
+  }
+
+  function sliderToCell(value) {
+    const t = Math.min(1, Math.max(0, value / 100));
+    const px = Math.exp(t * Math.log(GRID_CELL_MAX));
+    return Math.min(GRID_CELL_MAX, Math.max(GRID_CELL_MIN, Math.round(px)));
   }
 
   /* --- sampling -------------------------------------------------------------------- */
@@ -555,13 +738,24 @@
   W.fitSource = function fitSource() {
     const image = drawableSource();
     if (!image) return;
-    const grid = gridSize();
-    const overlayWidth = grid.width * state.cellPx;
-    const overlayHeight = grid.height * state.cellPx;
-    const zoom = Math.min(overlayWidth / image.width, overlayHeight / image.height);
+    const rect = gridRect();
+    const zoom = Math.min(rect.width / image.width, rect.height / image.height);
     state.zoom = Math.max(SOURCE_ZOOM_MIN, Math.min(SOURCE_ZOOM_MAX, zoom));
-    state.panX = OVERLAY_INSET + overlayWidth / 2 - (image.width * state.zoom) / 2;
-    state.panY = OVERLAY_INSET + overlayHeight / 2 - (image.height * state.zoom) / 2;
+    state.panX = rect.x + rect.width / 2 - (image.width * state.zoom) / 2;
+    state.panY = rect.y + rect.height / 2 - (image.height * state.zoom) / 2;
+    state.sampleDirty = true;
+    W.draw();
+  };
+
+  /* Re-centres the photo on the grid without changing its zoom. The grid
+     has just changed shape — the canvas was resized — and the photo should
+     stay over the middle of it. */
+  W.recentreSource = function recentreSource() {
+    const image = drawableSource();
+    if (!image) return;
+    const rect = gridRect();
+    state.panX = rect.x + rect.width / 2 - (image.width * state.zoom) / 2;
+    state.panY = rect.y + rect.height / 2 - (image.height * state.zoom) / 2;
     state.sampleDirty = true;
     W.draw();
   };
@@ -572,9 +766,9 @@
     state.zoom = state.cellPx;
     /* Snap the pan so the source's pixels land on the cells' boundaries. */
     state.panX =
-      OVERLAY_INSET - Math.round((OVERLAY_INSET - state.panX) / state.zoom) * state.zoom;
+      state.gridX - Math.round((state.gridX - state.panX) / state.zoom) * state.zoom;
     state.panY =
-      OVERLAY_INSET - Math.round((OVERLAY_INSET - state.panY) / state.zoom) * state.zoom;
+      state.gridY - Math.round((state.gridY - state.panY) / state.zoom) * state.zoom;
     state.sampleDirty = true;
     W.draw();
   };
@@ -654,9 +848,10 @@
   };
 
   W.updateTargetSize = function updateTargetSize() {
-    if (!el.targetSize) return;
     const grid = gridSize();
-    el.targetSize.textContent = grid.width + " × " + grid.height;
+    const text = grid.width + " × " + grid.height;
+    if (el.targetSize) el.targetSize.textContent = text;
+    if (el.convertSummary) el.convertSummary.textContent = text;
   };
 
   W.updateLoadNote = function updateLoadNote() {
@@ -686,6 +881,7 @@
     if (!canvas) return;
 
     let dragging = false;
+    let draggingGrid = false;
     let lastX = 0;
     let lastY = 0;
 
@@ -694,9 +890,13 @@
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
       dragging = true;
+      /* Shift moves the grid instead of the photo. Which one a drag moves
+         is decided when the drag starts, so it cannot change halfway
+         through. */
+      draggingGrid = event.shiftKey;
       lastX = event.clientX;
       lastY = event.clientY;
-      canvas.classList.add("is-panning");
+      canvas.classList.add(draggingGrid ? "is-grid-panning" : "is-panning");
     });
 
     canvas.addEventListener("pointermove", (event) => {
@@ -705,7 +905,8 @@
       const dy = event.clientY - lastY;
       lastX = event.clientX;
       lastY = event.clientY;
-      W.panBy(dx, dy);
+      if (draggingGrid) W.panGridBy(dx, dy);
+      else W.panBy(dx, dy);
     });
 
     const stop = (event) => {
@@ -715,6 +916,7 @@
         canvas.releasePointerCapture(event.pointerId);
       }
       canvas.classList.remove("is-panning");
+      canvas.classList.remove("is-grid-panning");
     };
 
     canvas.addEventListener("pointerup", stop);
@@ -726,6 +928,11 @@
         event.preventDefault();
         const rect = canvas.getBoundingClientRect();
         const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+        /* Shift zooms the grid; without it the wheel zooms the photo. */
+        if (event.shiftKey) {
+          W.zoomGrid(factor, event.clientX - rect.left, event.clientY - rect.top);
+          return;
+        }
         W.zoomBy(factor, event.clientX - rect.left, event.clientY - rect.top);
       },
       { passive: false }
@@ -741,11 +948,11 @@
         const next = sliderToZoom(parseFloat(el.zoomSlider.value));
         if (next === oldZoom) return;
 
-        /* Keep the middle of the overlay where it was, so the slider zooms
+        /* Keep the middle of the grid where it was, so the slider zooms
            the photo rather than sliding it away. */
-        const grid = gridSize();
-        const centreX = OVERLAY_INSET + (grid.width * state.cellPx) / 2;
-        const centreY = OVERLAY_INSET + (grid.height * state.cellPx) / 2;
+        const rect = gridRect();
+        const centreX = rect.x + rect.width / 2;
+        const centreY = rect.y + rect.height / 2;
         const sourceX = (centreX - state.panX) / oldZoom;
         const sourceY = (centreY - state.panY) / oldZoom;
 
@@ -758,6 +965,19 @@
         W.draw();
         W.requestPreview();
       });
+    }
+
+    /* The grid's own zoom slider. It moves the grid and nothing else —
+       the photo keeps the zoom and the pan it had. */
+    if (el.gridSlider) {
+      el.gridSlider.addEventListener("input", () => {
+        W.setGridCell(sliderToCell(parseFloat(el.gridSlider.value)));
+      });
+    }
+
+    const gridFit = document.getElementById("grid-fit");
+    if (gridFit) {
+      gridFit.addEventListener("click", () => W.fitGrid());
     }
   }
 

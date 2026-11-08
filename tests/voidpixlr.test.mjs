@@ -1250,6 +1250,7 @@ const JS_FILES = [
   "js/reference.js",
   "js/io.js",
   "js/workspace.js",
+  "js/menu.js",
   "js/app.js",
 ];
 
@@ -1311,7 +1312,7 @@ check("there is no inline script and no inline event handler", () => {
 
 check("the scripts are plain files, loaded in order, with no modules", () => {
   const sources = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-  assertEqual(sources.length, 9, "script count");
+  assertEqual(sources.length, 10, "script count");
   assert(!sources.some((src) => src.includes("type=\"module\"")), "an ES module");
   assertEqual(sources[0], "js/quantise.js", "the first script");
   assertEqual(sources[sources.length - 1], "js/app.js", "the last script");
@@ -1672,6 +1673,156 @@ check("the workspace converts into the canvas's own size", () => {
   );
 });
 
+check("there is one menu, on the left, and it drops open", () => {
+  const markup = read("index.html");
+  const menu = read("js/menu.js");
+
+  /* One column of controls, on the left. The Image mode used to bring a
+     second one beside it, and both were open at once. */
+  const menus = [...markup.matchAll(/class="menu"/g)].length;
+  assertEqual(menus, 1, "menu count");
+  assert(
+    markup.includes('class="sidebar"'),
+    "there is no left-hand column for the menu",
+  );
+
+  /* The Image mode's controls live inside that same menu, not in a column
+     of their own. */
+  assert(markup.includes('id="menu-image"'), "the Image mode has no menu group");
+  const menuGroup = markup.slice(
+    markup.indexOf('id="menu-image"'),
+    markup.indexOf('id="menu-foot"')
+  );
+  for (const id of ["ws-black", "ws-extract", "ws-match-flat"]) {
+    assert(menuGroup.includes(`id="${id}"`), `${id} is not in the menu`);
+  }
+  /* The primary action sits at the foot of the same column. */
+  assert(
+    markup.indexOf('id="ws-convert"') > markup.indexOf('id="sidebar"'),
+    "the primary action left the menu",
+  );
+  assert(
+    markup.indexOf('id="ws-convert"') < markup.indexOf('id="centre"'),
+    "the primary action is not in the menu column",
+  );
+
+  /* And the centre is left with the photo and the canvas, and nothing
+     else. */
+  const centre = markup.slice(
+    markup.indexOf('id="centre"'),
+    markup.indexOf('id="bottom"')
+  );
+  assert(
+    !centre.includes('id="ws-black"'),
+    "the Image mode's controls are still a column of their own",
+  );
+  assert(centre.includes('id="ws-source-pane"'), "the source pane left the centre");
+  assert(centre.includes('id="canvas-view"'), "the canvas left the centre");
+
+  /* The sections open and close. */
+  assert(
+    markup.includes('aria-expanded="true"'),
+    "no section says whether it is open",
+  );
+  assert(
+    /menu-head\[aria-expanded="false"\] \+ \.menu-body/.test(read("css/style.css")),
+    "a shut section still shows its body",
+  );
+  assert(
+    menu.includes(".menu-head"),
+    "the menu does not bind its section headers",
+  );
+
+  /* The colours are a pop-over, not a panel in the column: a sixty-four
+     swatch grid is taller than the whole menu. */
+  assert(markup.includes('id="colour-popover"'), "there is no colour pop-over");
+  const popover = markup.slice(
+    markup.indexOf('id="colour-popover"'),
+    markup.indexOf('id="sidebar"') + markup.indexOf('id="sidebar"')
+  );
+  assert(
+    markup.indexOf('id="swatch-grid"') > markup.indexOf('id="colour-popover"'),
+    "the swatch grid is not in the pop-over",
+  );
+  assert(popover !== null, "the pop-over is not there");
+});
+
+check("the grid has its own zoom and pan, and the photo does not move them", () => {
+  const workspace = read("js/workspace.js");
+
+  /* The grid's position and size are their own state, separate from the
+     photo's zoom and pan. */
+  assert(/gridX: OVERLAY_INSET/.test(workspace), "the grid has no position of its own");
+  assert(/gridY: OVERLAY_INSET/.test(workspace), "the grid has no position of its own");
+  assert(/cellAuto: true/.test(workspace), "the grid's cell size is not its own");
+
+  /* The sampler is told where the grid is, so the grid decides what is
+     converted. */
+  assert(
+    /function geometry[\s\S]{0,400}originX: state\.gridX/.test(workspace),
+    "the sampler is not told where the grid is",
+  );
+  assert(
+    /function geometry[\s\S]{0,400}originY: state\.gridY/.test(workspace),
+    "the sampler is not told where the grid is",
+  );
+  /* And the photo's zoom is not what places the grid. */
+  assert(
+    !/originX: OVERLAY_INSET/.test(workspace),
+    "the grid is still pinned to the corner of the pane",
+  );
+
+  /* A cell can be one pixel across. The old floor of four meant a
+     256-cell grid was always 1024 pixels across and ran off the bottom of
+     the pane — the grid could not be seen, let alone fitted. */
+  assert(/GRID_CELL_MIN = 1/.test(workspace), "a cell cannot be smaller than four pixels");
+  assert(
+    !/Math\.max\(4,/.test(workspace),
+    "the cell size still has a floor of four pixels",
+  );
+
+  /* There is a way to fit the whole grid, and a way to move it. */
+  assert(workspace.includes("W.fitGrid = function fitGrid("), "there is no fit-the-grid");
+  assert(workspace.includes("W.panGridBy = function panGridBy("), "the grid cannot be moved");
+  assert(workspace.includes("W.zoomGrid = function zoomGrid("), "the grid cannot be zoomed");
+  assert(read("index.html").includes('id="grid-fit"'), "there is no fit-the-grid button");
+
+  /* Shift moves the grid; without it the drag moves the photo. */
+  assert(
+    /draggingGrid = event\.shiftKey/.test(workspace),
+    "the grid cannot be moved with the mouse",
+  );
+  assert(
+    /if \(event\.shiftKey\)[\s\S]{0,120}W\.zoomGrid/.test(workspace),
+    "the grid cannot be zoomed with the wheel",
+  );
+
+  /* The grid's own slider moves the grid and nothing else. */
+  const markup = read("index.html");
+  assert(markup.includes('id="grid-zoom"'), "the grid has no zoom slider");
+  assert(
+    /el\.gridSlider\.addEventListener[\s\S]{0,200}W\.setGridCell/.test(workspace),
+    "the grid's slider does not drive the grid",
+  );
+});
+
+check("the grid is re-fitted when the canvas changes size", () => {
+  const app = read("js/app.js");
+
+  /* The grid over the photo is the canvas's size. When the canvas is
+     resized, the grid has to be re-fitted — otherwise it keeps the cell
+     size it had, grows off the bottom of the pane, and half of what is
+     converted is out of sight. */
+  assert(
+    /function doResize[\s\S]{0,900}VP\.workspace\.updateCellSize\(true\)/.test(app),
+    "a resize does not tell the workspace the grid has changed",
+  );
+  assert(
+    /function doResize[\s\S]{0,900}VP\.workspace\.recentreSource\(\)/.test(app),
+    "a resize does not re-centre the photo on the new grid",
+  );
+});
+
 check("the built-in palettes are balanced across the hue wheel", () => {
   /* The complaint that started this: every built-in had one red and one
      blue, while some other hue had four. The rule is that every hue family
@@ -1845,7 +1996,7 @@ check("the zoom always lands on a step", () => {
   );
 });
 
-check("the sidebar never cuts a control", () => {
+check("the menu never cuts a control", () => {
   const css = read("css/style.css");
   /* The swatch grid's height is set by a media query, never by a flex
      shrink: a shrink could take it to nothing, and a grid that collapses
@@ -1858,25 +2009,41 @@ check("the sidebar never cuts a control", () => {
     /\.swatch-grid[\s\S]{0,400}overflow-y: auto/.test(css),
     "the swatch grid does not scroll",
   );
-  /* The sidebar is a scrolling column, so its content is clipped rather
-     than allowed to overlap the bar below it. */
+  /* The menu is a scrolling column, so its content is clipped rather than
+     allowed to overlap the bar below it. */
   assert(
-    /\.sidebar[\s\S]{0,400}overflow-y: auto/.test(css),
-    "the sidebar is not a scrolling column",
+    /\.menu[\s\S]{0,200}overflow-y: auto/.test(css),
+    "the menu is not a scrolling column",
   );
   assert(
     !/\.sidebar[\s\S]{0,300}display: grid/.test(css),
     "the sidebar is a grid — a grid row can overflow and overlap the next one",
   );
+  /* The pop-over floats over the canvas, so it must not be clipped by the
+     menu's overflow — and it must be positioned in script, because its
+     place depends on where the button that opened it is. */
+  assert(
+    /\.popover[\s\S]{0,200}position: fixed/.test(css),
+    "the colour pop-over is not fixed — the menu's overflow will clip it",
+  );
+  const menu = read("js/menu.js");
+  assert(
+    /function place\(\)[\s\S]{0,900}getBoundingClientRect/.test(menu),
+    "the pop-over is not positioned from the button that opened it",
+  );
 });
 
-check("the workspace's primary action is pinned, not scrolled", () => {
-  assert(html.includes('class="ws-foot"'), "the workspace has no pinned footer");
-  assert(html.includes('class="ws-scroll"'), "the workspace has no scrolling column");
+check("the menu's primary action is pinned, not scrolled", () => {
+  assert(html.includes('class="menu-foot"'), "the menu has no pinned footer");
+  assert(html.includes('class="menu"'), "the menu has no scrolling column");
   const css = read("css/style.css");
   assert(
-    /\.ws-blocks[\s\S]{0,300}grid-template-rows: minmax\(0, 1fr\) auto/.test(css),
-    "the pinned footer is not pinned",
+    /\.menu-foot[\s\S]{0,200}flex: 0 0 auto/.test(css),
+    "the pinned footer can be scrolled away",
+  );
+  assert(
+    /\.sidebar[\s\S]{0,200}display: flex/.test(css),
+    "the sidebar is not a flex column, so the footer cannot be pinned",
   );
 });
 
@@ -1979,10 +2146,10 @@ check("every slider has a reset button", () => {
   );
   assert(sliders.length >= 12, `only ${sliders.length} sliders found in the markup`);
 
-  /* The two zoom sliders are framing controls, not adjustments: their
+  /* The three zoom sliders are framing controls, not adjustments: their
      "normal" is the Fit button beside them, and that is what the test
      below checks for them instead. */
-  const zoomSliders = ["ws-zoom", "canvas-zoom"];
+  const zoomSliders = ["ws-zoom", "canvas-zoom", "grid-zoom"];
 
   /* The workspace sliders are covered by attachReset calls, one per slider. */
   for (const id of sliders) {
@@ -1998,6 +2165,7 @@ check("every slider has a reset button", () => {
      put back. */
   assert(markup.includes('id="ws-fit"'), "the source zoom has no fit button");
   assert(markup.includes('id="canvas-fit"'), "the canvas zoom has no fit button");
+  assert(markup.includes('id="grid-fit"'), "the grid zoom has no fit button");
 
   /* And the one in the reference strip, which the app wires up. */
   const app = read("js/app.js");

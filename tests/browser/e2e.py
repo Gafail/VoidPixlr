@@ -182,7 +182,7 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     check("the reference strip is hidden with no reference", strip == "none", f"display: {strip}")
 
     workspace = fx.execute_script(
-        "return getComputedStyle(document.getElementById('workspace')).display"
+        "return getComputedStyle(document.getElementById('menu-image')).display"
     )
     check("the workspace is hidden until it is opened", workspace == "none", f"display: {workspace}")
 
@@ -472,6 +472,276 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
 
     fx.screenshot(str(shots / "06-converted.png"))
 
+    section("the menu")
+
+    # One menu on the left, and everything in it drops open. The sections
+    # start shut, so the menu reads as a short list of names.
+    menu_state = fx.execute_script(
+        """
+        var out = [];
+        document.querySelectorAll('.menu-section').forEach(function (s) {
+          var head = s.querySelector('.menu-head');
+          var body = s.querySelector('.menu-body');
+          out.push({
+            name: s.getAttribute('data-section'),
+            expanded: head.getAttribute('aria-expanded'),
+            bodyHidden: body ? body.hidden : null,
+          });
+        });
+        return out;
+        """
+    )
+    shut = [m for m in menu_state if m["bodyHidden"] is True]
+    check(
+        "the menu's sections start shut, apart from the palette",
+        len(shut) >= 3,
+        f"{len(shut)} sections are open",
+    )
+
+    # Clicking a header opens its body.
+    fx.execute_script(
+        "document.querySelector('.menu-section[data-section=\"convert\"] .menu-head').click();"
+    )
+    time.sleep(0.2)
+    convert_open = fx.execute_script(
+        """
+        var s = document.querySelector('.menu-section[data-section="convert"]');
+        return {
+          expanded: s.querySelector('.menu-head').getAttribute('aria-expanded'),
+          bodyHidden: s.querySelector('.menu-body').hidden,
+          visible: s.querySelector('.menu-body').getBoundingClientRect().height > 0,
+        };
+        """
+    )
+    check(
+        "a section opens when its header is clicked",
+        convert_open["expanded"] == "true"
+        and convert_open["bodyHidden"] is False
+        and convert_open["visible"] is True,
+        f"{convert_open}",
+    )
+
+    # And clicking it again shuts it.
+    fx.execute_script(
+        "document.querySelector('.menu-section[data-section=\"convert\"] .menu-head').click();"
+    )
+    time.sleep(0.2)
+    convert_shut = fx.execute_script(
+        """
+        var s = document.querySelector('.menu-section[data-section="convert"]');
+        return s.querySelector('.menu-body').getBoundingClientRect().height === 0;
+        """
+    )
+    check("a section shuts again", convert_shut is True, "the body is still there")
+
+    # The colours are a pop-over, not a panel in the column.
+    popover_before = fx.execute_script(
+        """
+        var p = document.getElementById('colour-popover');
+        return {hidden: p.hidden, display: getComputedStyle(p).display};
+        """
+    )
+    check(
+        "the colour pop-over is shut until it is asked for",
+        popover_before["hidden"] is True and popover_before["display"] == "none",
+        f"{popover_before}",
+    )
+
+    fx.execute_script("document.getElementById('colours-toggle').click();")
+    time.sleep(0.3)
+    popover_after = fx.execute_script(
+        """
+        var p = document.getElementById('colour-popover');
+        var r = p.getBoundingClientRect();
+        return {
+          hidden: p.hidden,
+          swatches: document.getElementById('swatch-grid').children.length,
+          onScreen: r.width > 0 && r.height > 0 &&
+                    r.left >= 0 && r.top >= 0 &&
+                    r.right <= window.innerWidth && r.bottom <= window.innerHeight,
+        };
+        """
+    )
+    check(
+        "the colour pop-over opens with the swatch grid in it",
+        popover_after["hidden"] is False and popover_after["swatches"] > 1,
+        f"{popover_after}",
+    )
+    check(
+        "the pop-over opens inside the window",
+        popover_after["onScreen"] is True,
+        f"{popover_after}",
+    )
+
+    # A click somewhere else puts it away.
+    fx.execute_script("document.getElementById('canvas-view').click();")
+    time.sleep(0.3)
+    popover_closed = fx.execute_script(
+        "return document.getElementById('colour-popover').hidden;"
+    )
+    check("a click elsewhere closes the pop-over", popover_closed is True, "still open")
+
+    # The Image mode's controls are in the menu, not in a column of their own.
+    in_menu = fx.execute_script(
+        """
+        var menu = document.getElementById('menu');
+        var side = document.getElementById('sidebar');
+        var centre = document.getElementById('centre');
+        return {
+          black: menu.contains(document.getElementById('ws-black')),
+          extract: menu.contains(document.getElementById('ws-extract')),
+          convert: side.contains(document.getElementById('ws-convert')),
+          columns: centre.children.length,
+        };
+        """
+    )
+    check(
+        "the Image mode's controls live in the menu",
+        in_menu["black"] and in_menu["extract"] and in_menu["convert"],
+        f"{in_menu}",
+    )
+    check(
+        "the centre holds only the photo and the canvas",
+        in_menu["columns"] == 2,
+        f"{in_menu['columns']} columns",
+    )
+
+    section("the grid has its own view")
+
+    # The grid and the photo are two separate views. The grid's cell size
+    # and position are the workspace's own state.
+    grid_state = """
+        var s = VP.workspace.state;
+        var pane = document.getElementById('source-pane');
+        return {
+          cell: s.cellPx,
+          gx: s.gridX,
+          gy: s.gridY,
+          zoom: s.zoom,
+          panX: s.panX,
+          panY: s.panY,
+          paneW: pane.clientWidth,
+          paneH: pane.clientHeight,
+          gridW: VP.canvas.state.width * s.cellPx,
+          gridH: VP.canvas.state.height * s.cellPx,
+        };
+    """
+
+    # Fit the grid and check that the whole of it is inside the pane. This
+    # is the complaint: the grid ran off the bottom of the screen and there
+    # was no way to see all of it.
+    fx.execute_script("VP.workspace.fitGrid();")
+    time.sleep(0.4)
+    fitted = fx.execute_script(grid_state)
+    check(
+        "the whole grid fits inside the pane",
+        fitted["gridW"] <= fitted["paneW"] and fitted["gridH"] <= fitted["paneH"],
+        f"grid {fitted['gridW']}×{fitted['gridH']} in a pane of "
+        f"{fitted['paneW']}×{fitted['paneH']}",
+    )
+    check(
+        "the fitted grid is inside the pane, not off its edge",
+        fitted["gx"] >= 0
+        and fitted["gy"] >= 0
+        and fitted["gx"] + fitted["gridW"] <= fitted["paneW"] + 1
+        and fitted["gy"] + fitted["gridH"] <= fitted["paneH"] + 1,
+        f"grid at {fitted['gx']},{fitted['gy']}",
+    )
+
+    # The grid moves without the photo moving.
+    photo_before = fx.execute_script("return {z: VP.workspace.state.zoom, x: VP.workspace.state.panX, y: VP.workspace.state.panY};")
+    fx.execute_script("VP.workspace.panGridBy(40, 25);")
+    time.sleep(0.3)
+    after_pan = fx.execute_script(grid_state)
+    check(
+        "the grid moves",
+        after_pan["gx"] != fitted["gx"] or after_pan["gy"] != fitted["gy"],
+        "the grid did not move",
+    )
+    check(
+        "the photo does not move when the grid does",
+        after_pan["zoom"] == photo_before["z"]
+        and after_pan["panX"] == photo_before["x"]
+        and after_pan["panY"] == photo_before["y"],
+        f"{photo_before} -> "
+        f"{{'z': {after_pan['zoom']}, 'x': {after_pan['panX']}, 'y': {after_pan['panY']}}}",
+    )
+
+    # And the grid zooms without the photo zooming.
+    fx.execute_script("VP.workspace.zoomGrid(2, 100, 100);")
+    time.sleep(0.3)
+    after_zoom = fx.execute_script(grid_state)
+    check(
+        "the grid zooms on its own",
+        after_zoom["cell"] != after_pan["cell"],
+        f"cell {after_pan['cell']} -> {after_zoom['cell']}",
+    )
+    check(
+        "the photo does not zoom when the grid does",
+        after_zoom["zoom"] == photo_before["z"],
+        f"photo zoom {photo_before['z']} -> {after_zoom['zoom']}",
+    )
+
+    # A big canvas is the case that used to break: the cell size had a
+    # floor of four pixels, so a 256-cell grid was always 1024 pixels
+    # across and ran off the bottom of the pane.
+    fx.execute_script("VP.canvas.resize(256, 256);")
+    time.sleep(0.3)
+    fx.execute_script("VP.workspace.updateCellSize(); VP.workspace.fitGrid();")
+    time.sleep(0.4)
+    big = fx.execute_script(grid_state)
+    check(
+        "a 256-cell grid fits in the pane",
+        big["gridW"] <= big["paneW"] and big["gridH"] <= big["paneH"],
+        f"grid {big['gridW']}×{big['gridH']} in a pane of "
+        f"{big['paneW']}×{big['paneH']}",
+    )
+    check(
+        "a cell can be smaller than four pixels",
+        big["cell"] < 4,
+        f"the cell is {big['cell']} pixels",
+    )
+
+    # The grid's own slider moves the grid and nothing else.
+    fx.execute_script(
+        """
+        var z = document.getElementById('grid-zoom');
+        z.value = '80';
+        z.dispatchEvent(new Event('input', {bubbles: true}));
+        """
+    )
+    time.sleep(0.3)
+    slid = fx.execute_script(grid_state)
+    check(
+        "the grid's slider moves the grid",
+        slid["cell"] != big["cell"],
+        f"cell {big['cell']} -> {slid['cell']}",
+    )
+
+    # A canvas resize re-fits the grid, even after the user has set a cell
+    # size by hand: the grid is the canvas's grid, so its shape has changed
+    # outright and a cell size that fitted the old one can leave the new
+    # grid running off the pane.
+    set_canvas_size(fx, 128)
+    time.sleep(0.5)
+    refitted = fx.execute_script(grid_state)
+    check(
+        "a canvas resize re-fits the grid",
+        refitted["gridW"] <= refitted["paneW"] and refitted["gridH"] <= refitted["paneH"],
+        f"grid {refitted['gridW']}×{refitted['gridH']} in a pane of "
+        f"{refitted['paneW']}×{refitted['paneH']}",
+    )
+
+    # Put it back for the rest of the suite: the framing the next checks
+    # expect, with the photo over the grid.
+    fx.execute_script(
+        "VP.canvas.resize(32, 32);"
+        "VP.workspace.updateCellSize(true);"
+        "VP.workspace.fitGrid();"
+        "VP.workspace.fitSource();"
+    )
+    time.sleep(0.4)
+
     section("the sliders keep up with the page")
 
     # Every slider has a reset button, and the reset puts back exactly what
@@ -496,13 +766,17 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
         return out;
         """
     )
-    # The two zoom sliders are framing controls, not adjustments: each one
+    # The three zoom sliders are framing controls, not adjustments: each one
     # has a Fit button of its own beside it, which is how it is put back.
-    zoom_sliders = {"ws-zoom", "canvas-zoom"}
+    zoom_sliders = {"ws-zoom", "canvas-zoom", "grid-zoom"}
     without_reset = [
         s["id"] for s in sliders if not s["hasReset"] and s["id"] not in zoom_sliders
     ]
-    for zoom_id, fit_id in (("ws-zoom", "ws-fit"), ("canvas-zoom", "canvas-fit")):
+    for zoom_id, fit_id in (
+        ("ws-zoom", "ws-fit"),
+        ("canvas-zoom", "canvas-fit"),
+        ("grid-zoom", "grid-fit"),
+    ):
         check(
             f"the {zoom_id} slider has a fit button",
             bool(fx.execute_script(

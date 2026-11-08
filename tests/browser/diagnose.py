@@ -232,6 +232,49 @@ def main() -> int:
         print(f"  dropdowns: X={rect['x']} Y={rect['y']}  lock={rect['lock']!r}")
         print(f"  on screen: {rect['css']}")
 
+        # --- the grid over the photo ---
+        #
+        # The complaint this answers: the grid ran off the bottom of the
+        # screen and there was no way to see all of it. The cell size used to
+        # have a floor of four pixels, so a 256-cell grid was always 1024
+        # pixels across. Now the grid fits, and it fits at every size.
+        report("the grid over the photo")
+        firefox.navigate(f"{args.base}/")
+        time.sleep(0.7)
+        firefox.execute_script("document.getElementById('workspace-toggle').click();")
+        time.sleep(0.5)
+        photo = IMAGES / "test-photo.png"
+        firefox.set_file_input("#file-image", str(photo))
+        firefox.execute_script(
+            "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+        )
+        time.sleep(1.5)
+        for size in (16, 32, 64, 128, 256, 512):
+            firefox.execute_script(
+                f"VP.canvas.resize({size}, {size});"
+                "VP.workspace.updateCellSize();"
+                "VP.workspace.fitGrid();"
+            )
+            time.sleep(0.3)
+            info = firefox.execute_script(
+                "const s = VP.workspace.state;"
+                "const p = document.getElementById('source-pane');"
+                "const gw = VP.canvas.state.width * s.cellPx;"
+                "const gh = VP.canvas.state.height * s.cellPx;"
+                "return {cell: s.cellPx, gw: gw, gh: gh,"
+                " pw: p.clientWidth, ph: p.clientHeight,"
+                " gx: s.gridX, gy: s.gridY};"
+            )
+            inside = (
+                info["gw"] <= info["pw"]
+                and info["gh"] <= info["ph"]
+                and info["gx"] >= 0
+                and info["gy"] >= 0
+            )
+            verdict = "fits" if inside else "RUNS OFF THE PANE"
+            print(f"  {size:>4}×{size:<4} cell {info['cell']:>3}px  grid {info['gw']:>4}×{info['gh']:<4}"
+                  f"  pane {info['pw']:>4}×{info['ph']:<4}  → {verdict}")
+
         # --- the image upload ---
         report("loading a real image file")
         firefox.navigate(f"{args.base}/")

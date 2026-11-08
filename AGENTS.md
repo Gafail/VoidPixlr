@@ -47,10 +47,12 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
   adjustments, the underlay resample, the fit modes.
 - `js/io.js` — PNG and JSON export, JSON and PNG import, the clipboard with
   its download fallback.
-- `js/workspace.js` — the Image workspace: the source pane's own pan and
-  zoom, the adjustment panel, palette extraction and tuning, the conversion,
-  and the two-tier live preview — which is drawn on the canvas, not on a
-  second one.
+- `js/workspace.js` — the Image workspace: the source pane's pan and zoom,
+  the **grid's own pan and zoom**, the adjustments, palette extraction and
+  tuning, the conversion, and the two-tier live preview — which is drawn on
+  the canvas, not on a second one.
+- `js/menu.js` — the menu: the sections that drop open, and the colour
+  pop-over, which floats over the canvas beside the button that opened it.
 - `js/app.js` — the bootstrap: wiring, the keyboard, drag and drop, paste,
   the inline panels, the autosave.
 - `ops/nginx/voidpixlr.conf` — the vhost.
@@ -67,11 +69,11 @@ glow. Accent `#4f4fff` on `#0d0d0f`.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 148 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 151 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
-python3 tests/browser/e2e.py            # 94 end-to-end checks
+python3 tests/browser/e2e.py            # 116 end-to-end checks
 python3 tests/browser/hostile.py        # 31 hostile-input checks
 ```
 
@@ -176,7 +178,20 @@ from what nginx will send.
   canvas at 16× on a HiDPI screen would otherwise ask for 268 MB.
 - **`cellPx` is fixed when the grid size changes, not on every pane
   resize.** Otherwise enlarging the browser window would silently change
-  what the conversion samples.
+  what the conversion samples. But a **canvas resize re-fits it** — the
+  grid is the canvas's size, so a grid that kept its old cell size grew
+  off the bottom of the pane and half of what was converted was out of
+  sight.
+- **The grid is a view of its own.** `state.gridX` / `state.gridY` are
+  where it sits in the pane and `state.cellPx` is the size of one cell on
+  screen; the photo's `zoom` / `panX` / `panY` are the photo's. The
+  sampler takes all four as separate numbers, so the grid decides *which*
+  part of the photo is converted and the photo decides *how* it is
+  magnified. `Shift`+drag moves the grid; `Shift`+wheel zooms it.
+- **A cell can be one pixel across.** The old floor of four pixels meant a
+  256-cell grid was always 1024 pixels across and a 512-cell grid was
+  2048 — the grid could never be seen whole, and there was no control
+  that could make it smaller. `Fit` fits the whole grid in the pane.
 - **`VP.canvas.grid` is a getter onto `VP.canvas.state.grid`.** It was a
   real bug when it did not exist: every palette switch threw.
 - **The vhost's address is the placeholder `192.0.2.0`.** That is the RFC
@@ -226,7 +241,19 @@ from what nginx will send.
 - **Each pane zooms on its own.** The source's zoom is
   `VP.workspace.state.zoom`; the canvas's is `VP.canvas.state.scale`.
   Neither writes to the other, and the canvas's scale is an integer from
-  1 to 64 — the slider maps to it logarithmically.
+  1 to 64 — the slider maps to it logarithmically. The grid has a third
+  zoom of its own: `state.cellPx`, from 1 to 64.
+- **There is one menu, on the left.** The palette and the Image mode's
+  controls were two columns, both permanently open. Now they are five
+  sections of one menu — Palette, Colours, Adjust, Extract, Convert —
+  each a header that opens a body. The centre holds the photo and the
+  canvas and nothing else.
+- **The colours are a pop-over, not a section.** A sixty-four swatch grid
+  is sixteen rows and taller than the whole menu. It floats over the
+  canvas, positioned in script from the button that opened it, and closes
+  on a click elsewhere or on `Escape`. It is `position: fixed` on purpose:
+  the menu scrolls, and a fixed child escapes that overflow instead of
+  being clipped by it.
 - **The built-in palettes are balanced on purpose.** Twelve hue families,
   each with one step in the 16, two in the 32 and four in the 64. The node
   suite checks that with `P.hueCoverage()`; the check is the point, so do
