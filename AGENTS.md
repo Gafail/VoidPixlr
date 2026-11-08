@@ -102,8 +102,10 @@ from what nginx will send.
    no password, so `CREDENTIALS.md` needs no `export` line for it.
 3. `./deploy.sh <ip>` — the address is mandatory. The script refuses to run
    without one.
-4. Copy this folder into `TheVoidCo/projects/voidpixlr/` as a **real copy**,
-   never a symlink, and add the registry row to the root `README.md`.
+4. Add the registry row to the umbrella's root `README.md`, pointing at
+   **this folder** — `~/Desktop/voidpixlr/`. The source stays here. The
+   umbrella holds no copy of it: it is a standalone project and TheVoidCo
+   only points at it. Do not rsync, copy or symlink this folder anywhere.
 5. `python3 website/scripts/sync-registry.py` then
    `node website/tests/site.test.mjs`.
 
@@ -175,7 +177,14 @@ from what nginx will send.
 
 ## Live operations state
 
-- Current deployed version: **v2.0 r9, live at http://192.168.100.100/**.
+- **Canonical home: `~/Desktop/voidpixlr/`.** This folder is the project. It
+  is its own git repository, with the remote `Gafail/VoidPixlr` as a **backup**
+  (no Pages, no CI, no hosting). TheVoidCo does **not** hold a copy of this
+  source — it keeps a registry row pointing here, plus the shared `ops/`
+  infrastructure for the container. Never copy or symlink this folder into
+  another repository; a duplicate copy is a second thing to forget to update,
+  and this project has already drifted once because of it.
+- Current deployed version: **v2.0 r10, live at http://192.168.100.100/**.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.

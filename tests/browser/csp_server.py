@@ -35,17 +35,24 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
 
-# Where the umbrella keeps the shared snippet. Walk up until it is found,
-# so the script works from inside TheVoidCo/projects/voidpixlr/ and from
-# the standalone copy on the Desktop.
+# Where the umbrella keeps the shared snippet. This project is standalone: the
+# umbrella is a SIBLING of it on the Desktop, not an ancestor. So walk up the
+# tree first (which covers a project nested inside a monorepo), then look at
+# the siblings.
 def find_snippet() -> Path:
     for directory in (PROJECT_ROOT, *PROJECT_ROOT.parents):
         candidate = directory / "ops" / "nginx-snippets" / "security-headers.conf"
         if candidate.is_file():
             return candidate
+
+    for sibling in PROJECT_ROOT.parent.glob("*/"):
+        candidate = sibling / "ops" / "nginx-snippets" / "security-headers.conf"
+        if candidate.is_file():
+            return candidate
+
     raise SystemExit(
         "error: could not find ops/nginx-snippets/security-headers.conf.\n"
-        "       Run this from inside TheVoidCo/projects/voidpixlr/."
+        "       The umbrella normally sits next to this folder on the Desktop."
     )
 
 

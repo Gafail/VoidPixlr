@@ -18,10 +18,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# The umbrella repo holds the shared nginx snippets and the host keys. It is
-# an ancestor of this folder once the project is imported into
-# TheVoidCo/projects/voidpixlr/ — but the script also works from the
-# standalone copy on the Desktop.
+# The umbrella repo holds the shared nginx snippets and the host keys. This
+# project is standalone: it is a SIBLING of the umbrella on the Desktop
+# (~/Desktop/voidpixlr and ~/Desktop/TheVoidCo), not a child of it. So the
+# umbrella is found by walking up the tree, and then by looking at the
+# siblings of this folder. Set REPO_ROOT to override both.
 find_repo_root() {
   local dir="$1"
   while [ "$dir" != "/" ]; do
@@ -31,13 +32,26 @@ find_repo_root() {
     fi
     dir="$(dirname -- "$dir")"
   done
+
+  # A sibling of this folder — the usual layout for a standalone project.
+  local parent sibling
+  parent="$(dirname -- "$1")"
+  for sibling in "$parent"/*/; do
+    [ -d "$sibling" ] || continue
+    if [ -f "$sibling/ops/nginx-snippets/security-headers.conf" ]; then
+      echo "${sibling%/}"
+      return 0
+    fi
+  done
+
   return 1
 }
 
 REPO_ROOT="$(find_repo_root "$SCRIPT_DIR" || true)"
 if [ -z "${REPO_ROOT:-}" ]; then
   echo "error: could not find the umbrella repo (ops/nginx-snippets/security-headers.conf)." >&2
-  echo "       Run this from inside TheVoidCo/projects/voidpixlr/, or set REPO_ROOT." >&2
+  echo "       It normally sits next to this folder on the Desktop." >&2
+  echo "       Point REPO_ROOT at it, or set VOIDPIXLR_KEY and copy the snippet by hand." >&2
   exit 1
 fi
 

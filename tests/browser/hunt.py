@@ -16,6 +16,9 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# The project root, derived from this file — never a hard-coded path, so the
+# suite works wherever the project is checked out.
+ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 
 from marionette import Marionette  # noqa: E402
@@ -74,7 +77,7 @@ def main() -> int:
         fx.set_window_rect(1500, 950)
 
         # Install the probe on a copy of the page.
-        root = Path("/home/gafail/Desktop/TheVoidCo/projects/voidpixlr")
+        root = ROOT
         diag = root / ".vp-hunt.html"
         html = (root / "index.html").read_text(encoding="utf-8")
         probe_path = root / ".vp-hunt.js"
@@ -204,8 +207,8 @@ def main() -> int:
     finally:
         fx.stop()
         for path in (
-            Path("/home/gafail/Desktop/TheVoidCo/projects/voidpixlr/.vp-hunt.html"),
-            Path("/home/gafail/Desktop/TheVoidCo/projects/voidpixlr/.vp-hunt.js"),
+            ROOT / ".vp-hunt.html",
+            ROOT / ".vp-hunt.js",
         ):
             path.unlink(missing_ok=True)
 

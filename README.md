@@ -70,8 +70,8 @@ address when it installs the file, so a checked-in config can never point at
 a machine that is already serving something else.
 
 The deploy script finds the shared nginx snippet and the shared deploy key by
-walking up to the umbrella repository. Run it from inside
-`TheVoidCo/projects/voidpixlr/`, or point `REPO_ROOT` at the umbrella.
+walking up to the umbrella repository. Run it from inside this folder, or point
+`REPO_ROOT` at `~/Desktop/TheVoidCo`.
 
 ## Testing
 
@@ -110,4 +110,6 @@ is the archived v1.0.
 
 ## Licence and identity
 
-Part of TheVoidCo. Local-first, no accounts, no tracking, no telemetry.
+A standalone Void* project. TheVoidCo keeps a registry row that points at this
+folder; it holds no copy of the source. Local-first, no accounts, no tracking,
+no telemetry.

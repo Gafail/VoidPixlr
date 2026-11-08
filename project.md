@@ -145,6 +145,41 @@ Every section ends with a **Decision** block recording the choices made for v2.
 >   with no error and keeps its original dimensions, and a **live check**
 >   that runs the same path against the deployed site. A node test also
 >   asserts that **no `ImageData` is ever passed to `drawImage`**.
+>
+> - **r10 (2026-11-08)** — **VoidPixlr became a standalone project.** The
+>   source had been living in two places: `~/Desktop/voidpixlr/` and a copy
+>   at `TheVoidCo/projects/voidpixlr/`. The house rule is that **every
+>   project is standalone** — its own folder, its own repository, its own
+>   deploy — and **TheVoidCo only points at them**.
+>
+>   The duplicate copy had already cost real work: the r9 `drawImage` fix
+>   landed in this folder and had to be copied across by hand, which is
+>   exactly the failure mode a duplicate invites. A copy is a second thing
+>   to forget to update.
+>
+>   So the umbrella copy is gone. `projects/` in TheVoidCo is **empty on
+>   purpose**, and the umbrella's registry row now points at
+>   `~/Desktop/voidpixlr/` — a pointer, not a copy.
+>
+>   Moving the project out broke two things that assumed the umbrella was
+>   an **ancestor** of it, and both were fixed:
+>
+>   1. **`deploy.sh` could not find the shared key or the nginx snippet.**
+>      It walked *up* the tree looking for `ops/nginx-snippets/`. The
+>      umbrella is now a **sibling**, so the search also looks at the
+>      siblings of this folder. A deploy from this folder was run and
+>      verified against `.100` (§13.4).
+>   2. **The CSP test server could not find the snippet either.** Same
+>      walk-up search, same fix (`tests/browser/csp_server.py`).
+>
+>   `tests/browser/hunt.py` had a **hard-coded absolute path** to the
+>   umbrella copy; it now derives the project root from its own location,
+>   so it works wherever the project is checked out.
+>
+>   This folder is now the project's own git repository, with
+>   `Gafail/VoidPixlr` as a **backup** — no Pages, no CI, no hosting. The
+>   upstream umbrella keeps only the registry row, the landing-page entry,
+>   and the shared `ops/` infrastructure for the container (§13.6).
 
 v1 was a toy that did one thing perfectly: open a file, click pixels, get a PNG.
 v2 keeps that restraint — same aesthetic, same "no menus, no accounts, no
@@ -283,7 +318,7 @@ Why the distinction is worth stating plainly:
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
   row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r9)
+- **Version:** 2.0 (revision r10)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
   10-minute doodles to serious sprite work and photo tracing.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -296,8 +331,13 @@ Why the distinction is worth stating plainly:
 
 ## 2. House Alignment (TheVoidCo)
 
-This project lives inside TheVoidCo umbrella. The spec has to agree with the
-umbrella's rules, not just be self-consistent.
+VoidPixlr is a **standalone project**: its own folder (`~/Desktop/voidpixlr/`),
+its own repository, its own deploy. TheVoidCo holds a registry row that points
+at it, and the shared infrastructure it manages — the nginx snippet, the host
+registry and the deploy key. That pointer is the only association; the
+umbrella holds no copy of this source.
+
+The spec still has to agree with the house rules, not just be self-consistent.
 
 ### 2.1 Compliance table
 
@@ -314,13 +354,13 @@ umbrella's rules, not just be self-consistent.
 | Static site: nginx serves files, no runtime behind it | ✅ | No Node, no systemd unit. |
 | One container, one site | ✅ | VoidPixlr gets its own LXC. |
 | Don't edit the live server directly — go through `deploy.sh` | ✅ | §13.4. |
-| Real copies, never symlinks | ✅ | Import to `projects/voidpixlr/` as a real copy. |
-| `AGENTS.md` required per project | ✅ | Written at import time — §13.6. |
-| Registry row is the canonical list | ✅ | §13.6. |
+| Every project is standalone — no copies, no symlinks | ✅ | This folder is the project. The umbrella holds no copy of it. |
+| `AGENTS.md` required per project | ✅ | In this project's own folder. |
+| Registry row is the canonical list | ✅ | The umbrella's registry points here — §13.6. |
 
 ### 2.2 The CSP constraint (why v1's single file is gone)
 
-The shared nginx snippet at `TheVoidCo/ops/nginx-snippets/security-headers.conf`
+The shared nginx snippet at `~/Desktop/TheVoidCo/ops/nginx-snippets/security-headers.conf`
 ships:
 
 ```
@@ -1966,24 +2006,30 @@ server {
   assets, and a stale `index.html` is the only real risk — `index.html` gets
   a short `expires`, assets get a long one.
 
-### 13.6 Coming into TheVoidCo
-1. Copy the source into `TheVoidCo/projects/voidpixlr/` — a **real copy**, not
-   a symlink. The folder on the Desktop becomes a legacy mirror and is
-   retired.
-2. Write `projects/voidpixlr/AGENTS.md` using the house template (purpose,
+### 13.6 Standing in the Void* family
+
+VoidPixlr is a standalone project. It does not live inside the umbrella, and
+the umbrella keeps no copy of it. What it has is a **pointer**.
+
+1. Keep the source here, in `~/Desktop/voidpixlr/`, with its own repository.
+   **Never** copy or symlink it into another repository — a duplicate is a
+   second thing to forget to update, and this project has already drifted once
+   because of one.
+2. Keep `AGENTS.md` in this folder, using the house template (purpose,
    architecture, files, deploy, gotchas, brand).
-3. Add the registry row to the root `README.md`:
+3. Add the registry row to the umbrella's root `README.md`, pointing at where
+   the source actually lives:
 
    ```markdown
-   | **voidpixlr** | LAN-only | `http://192.168.100.<n>/` | `projects/voidpixlr/` | Pixel-art canvas. Static site, no backend. |
+   | **voidpixlr** | LAN-only | `http://192.168.100.<n>/` | `~/Desktop/voidpixlr/` | Pixel-art canvas. Static site, no backend. |
    ```
 
 4. Regenerate the landing page: `python3 website/scripts/sync-registry.py`
    (then `node website/tests/site.test.mjs`).
-5. Register the host in `ops/vm.sh` (`VM_HOSTS`, `VM_USERS`, `VM_KEYS`) and add
-   a row to the root `CREDENTIALS.md` (`chmod 600`).
-6. Commit. Never commit `CREDENTIALS.md`, `ops/keys/`, `.env` or any build
-   artefact.
+5. Register the host in the umbrella's `ops/vm.sh` (`VM_HOSTS`, `VM_USERS`,
+   `VM_KEYS`) and add a row to the root `CREDENTIALS.md` (`chmod 600`).
+6. Commit **here**, to this project's own repository. Never commit
+   `CREDENTIALS.md`, `ops/keys/`, `.env` or any build artefact.
 
 ### Decision
 - **LAN-only static**, its own container, nginx serving a directory, no
@@ -2628,7 +2674,7 @@ reason.
 | 19 | No persistence | `localStorage` autosave **+ IndexedDB for the photo** | Palettes that vanish on reload are useless, and neither should the photo. **Approved house-rule exception** (§9.4). |
 | 20 | 3 shortcuts | 19 shortcuts | A tool needs keyboard access. |
 | 21 | "Double-click to open" | LAN container + nginx + `deploy.sh` | The house deployment shape (§13). |
-| 22 | No house alignment | Registry row, `AGENTS.md`, landing-page sync | TheVoidCo membership (§13.6). |
+| 22 | House alignment | Registry row pointing at this folder, `AGENTS.md`, landing-page sync | TheVoidCo pointer (§13.6). |
 | 23 | Filenames fixed | `voidpixlr-<size>x<size>.<ext>` | Multiple files need distinct names. |
 | 24 | No tests | Dependency-free node logic tests | The house pattern (`website/tests/`). |
 | 25 | Mobile out of scope | Still out of scope | Unchanged — deliberately. |
@@ -2717,7 +2763,7 @@ A pixel canvas that earns its keep. A tool. A Void.
 
 ## 21. Build Status
 
-**Built, tested and live.** The source in this folder is the v2.0 r9 build,
+**Built, tested and live.** The source in this folder is the v2.0 r10 build,
 serving at **http://192.168.100.100/**.
 
 - Nine JavaScript modules, one stylesheet, one HTML file. No build step, no
