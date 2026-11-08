@@ -422,17 +422,23 @@
       x.addEventListener("change", () => {
         const value = parseInt(x.value, 10);
         if (!Q.ALLOWED_SIZES.includes(value)) return;
+        /* A resize that is waiting for confirmation is the base for the
+           next one. Reading the canvas's *current* size instead would
+           throw the first change away: set X to 64, then Y to 32, and the
+           panel would say "16×32" — the 64 was lost. */
+        const base = state.pendingResize || VP.canvas.state;
         /* Linked, the two edges are one number: changing either sets both. */
         if (state.sizeLocked) requestResize(value, value);
-        else requestResize(value, VP.canvas.state.height);
+        else requestResize(value, base.height);
       });
     }
     if (y) {
       y.addEventListener("change", () => {
         const value = parseInt(y.value, 10);
         if (!Q.ALLOWED_SIZES.includes(value)) return;
+        const base = state.pendingResize || VP.canvas.state;
         if (state.sizeLocked) requestResize(value, value);
-        else requestResize(VP.canvas.state.width, value);
+        else requestResize(base.width, value);
       });
     }
     if (lock) {
@@ -440,7 +446,8 @@
         state.sizeLocked = !state.sizeLocked;
         if (state.sizeLocked) {
           /* Tying them together makes Y match X. */
-          requestResize(VP.canvas.state.width, VP.canvas.state.width);
+          const base = state.pendingResize || VP.canvas.state;
+          requestResize(base.width, base.width);
         }
         autosave();
         renderAll();

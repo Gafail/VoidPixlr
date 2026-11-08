@@ -201,6 +201,15 @@ from what nginx will send.
   loaded with `src`; both suites assert `probe.is_installed()` first, so it
   cannot go quietly blind again.
 
+- **The underlay lives in a buffer at the canvas's size, so a resize wipes
+  it.** `C.resize()` makes a new reference buffer, and nothing resampled the
+  photo into it — the reference simply vanished on every resize. The resize
+  now resamples. The resample used the buffer's *width* for both axes, so a
+  rectangle squashed the photo; it uses the width and the height now.
+- **A second size change must build on the *pending* size.** Set X to 64,
+  then Y to 32: the panel has to say "64 × 32". Reading the canvas's
+  current size instead threw the first change away — the panel said
+  "16 × 32" and the 64 was lost.
 - **The canvas is not square, and `size` is gone.** `VP.canvas.state.width`
   and `.height` are the two edges; the grid's row stride is the **width**.
   Every buffer, export, autosave and undo snapshot carries both. A snapshot

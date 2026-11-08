@@ -1551,12 +1551,19 @@ check("a locked canvas is square and an unlocked one is not", () => {
     "the lock does not tie X and Y together",
   );
   assert(
-    /else requestResize\(value, VP\.canvas\.state\.height\)/.test(app),
+    /else requestResize\(value, base\.height\)/.test(app),
     "an unlocked X still moves Y",
   );
   assert(
-    /else requestResize\(VP\.canvas\.state\.width, value\)/.test(app),
+    /else requestResize\(base\.width, value\)/.test(app),
     "an unlocked Y still moves X",
+  );
+  /* The base of a second change is the *pending* size, not the canvas's
+     current one: set X to 64, then Y to 32, and the panel must say
+     "64 × 32" — not "16 × 32", which would throw the 64 away. */
+  assert(
+    /const base = state\.pendingResize \|\| VP\.canvas\.state/.test(app),
+    "a second size change does not build on the pending one",
   );
 });
 

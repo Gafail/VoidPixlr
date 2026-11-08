@@ -141,8 +141,16 @@ def main() -> int:
 
         failures += len(step(fx, "fit framing", "document.getElementById('ws-fit').click();", 0.5))
         failures += len(step(fx, "pixel framing", "document.getElementById('ws-pixel').click();", 0.5))
-        failures += len(step(fx, "zoom in", "document.getElementById('ws-zoom-in').click();", 0.4))
-        failures += len(step(fx, "zoom out", "document.getElementById('ws-zoom-out').click();", 0.4))
+        failures += len(step(fx, "zoom in", """
+              const s = document.getElementById('ws-zoom');
+              s.value = String(Math.min(100, Number(s.value) + 12));
+              s.dispatchEvent(new Event('input', {bubbles: true}));
+            """, 0.4))
+        failures += len(step(fx, "zoom out", """
+              const s = document.getElementById('ws-zoom');
+              s.value = String(Math.max(0, Number(s.value) - 12));
+              s.dispatchEvent(new Event('input', {bubbles: true}));
+            """, 0.4))
         failures += len(step(fx, "auto levels", "document.getElementById('ws-auto-levels').click();", 0.8))
 
         for slider in ("ws-black", "ws-white", "ws-brightness", "ws-contrast", "ws-saturation", "ws-hue"):
@@ -176,7 +184,9 @@ def main() -> int:
 
         for size in (16, 64, 128, 256):
             failures += len(step(fx, f"convert at {size}", f"""
-              document.getElementById('ws-size-{size}').click();
+              const x = document.getElementById('size-x');
+              x.value = '{size}';
+              x.dispatchEvent(new Event('change', {{bubbles: true}}));
               document.getElementById('ws-convert').click();
             """, 1.4))
 

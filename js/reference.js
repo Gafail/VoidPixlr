@@ -438,14 +438,19 @@
   /* --- the underlay ------------------------------------------------------------------ */
 
   /* Resamples the source into the reference buffer at exactly the canvas
-     size, nearest-neighbour, using the current fit mode. */
+     size, nearest-neighbour, using the current fit mode.
+
+     The canvas is not square, so the buffer has a width and a height and
+     the fit is computed against both. Resampling into a square and
+     cropping it would squash the photo into the wrong shape. */
   R.resample = function resample() {
     const buffer = VP.canvas.referenceBuffer();
     const context = VP.canvas.referenceContext();
     if (!buffer || !context) return;
 
-    const size = buffer.width;
-    context.clearRect(0, 0, size, size);
+    const sizeWidth = buffer.width;
+    const sizeHeight = buffer.height;
+    context.clearRect(0, 0, sizeWidth, sizeHeight);
 
     if (!state.source) {
       VP.canvas.composite();
@@ -454,11 +459,11 @@
 
     const image = state.source.canvas;
     const scratch = document.createElement("canvas");
-    scratch.width = size;
-    scratch.height = size;
+    scratch.width = sizeWidth;
+    scratch.height = sizeHeight;
     const scratchContext = scratch.getContext("2d", { willReadFrequently: true });
     scratchContext.imageSmoothingEnabled = false;
-    scratchContext.clearRect(0, 0, size, size);
+    scratchContext.clearRect(0, 0, sizeWidth, sizeHeight);
 
     const width = image.width;
     const height = image.height;
@@ -469,24 +474,24 @@
     let offsetY = 0;
 
     if (state.fit === "cover") {
-      const scale = Math.max(size / width, size / height);
+      const scale = Math.max(sizeWidth / width, sizeHeight / height);
       drawWidth = width * scale;
       drawHeight = height * scale;
-      offsetX = (size - drawWidth) / 2;
-      offsetY = (size - drawHeight) / 2;
+      offsetX = (sizeWidth - drawWidth) / 2;
+      offsetY = (sizeHeight - drawHeight) / 2;
     } else if (state.fit === "contain") {
-      const scale = Math.min(size / width, size / height);
+      const scale = Math.min(sizeWidth / width, sizeHeight / height);
       drawWidth = width * scale;
       drawHeight = height * scale;
-      offsetX = (size - drawWidth) / 2;
-      offsetY = (size - drawHeight) / 2;
+      offsetX = (sizeWidth - drawWidth) / 2;
+      offsetY = (sizeHeight - drawHeight) / 2;
     }
 
     scratchContext.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
 
     /* The buffer holds the resampled photo; the display scales it up. */
     context.imageSmoothingEnabled = false;
-    context.clearRect(0, 0, size, size);
+    context.clearRect(0, 0, sizeWidth, sizeHeight);
     context.drawImage(scratch, 0, 0);
     VP.canvas.composite();
   };

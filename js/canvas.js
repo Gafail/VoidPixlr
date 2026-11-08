@@ -134,6 +134,11 @@
     state.refBuffer = makeCanvas(newWidth, newHeight);
     state.refContext = state.refBuffer.getContext("2d");
 
+    /* The underlay lives in a buffer at the canvas's size, and the resize
+       made a new one — so the photo has to be resampled into it. Without
+       this the reference simply vanishes on every resize. */
+    if (VP.reference && VP.reference.resample) VP.reference.resample();
+
     C.rebuildArt();
     C.resizeDisplay();
     C.composite();

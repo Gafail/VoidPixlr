@@ -297,6 +297,71 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     )
     check("the working copy is bounded at 2048", dims[0] <= 2048 and dims[1] <= 2048, str(dims))
 
+    # The underlay lives in a buffer at the canvas's size, so a resize makes
+    # a new one — and the photo has to be resampled into it. It used to
+    # simply vanish, on every resize, and it was resampled as if the canvas
+    # were square, so a rectangle squashed the photo.
+    underlay = """
+      const c = VP.canvas.referenceBuffer();
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let lit = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) lit += 1;
+      return [c.width, c.height, lit];
+    """
+    before_underlay = fx.execute_script(underlay)
+    check(
+        "the underlay is drawn at the canvas's size",
+        before_underlay[0] == 16 and before_underlay[1] == 16 and before_underlay[2] > 0,
+        str(before_underlay),
+    )
+
+    # A rectangle: 64 x 16. The underlay must follow both edges.
+    fx.execute_script("document.getElementById('size-lock').click();")
+    time.sleep(0.2)
+    fx.execute_script(
+        "const x = document.getElementById('size-x');"
+        "x.value = '64';"
+        "x.dispatchEvent(new Event('change', {bubbles: true}));"
+        "const y = document.getElementById('size-y');"
+        "y.value = '16';"
+        "y.dispatchEvent(new Event('change', {bubbles: true}));"
+    )
+    time.sleep(0.4)
+    panel = fx.execute_script(
+        "return getComputedStyle(document.getElementById('resize-panel')).display;"
+    )
+    if panel != "none":
+        fx.click("#resize-confirm")
+        time.sleep(0.5)
+
+    rect = fx.execute_script(underlay)
+    check(
+        "the underlay follows a rectangular canvas",
+        rect[0] == 64 and rect[1] == 16 and rect[2] > 0,
+        str(rect),
+    )
+    check(
+        "the canvas is a rectangle",
+        fx.execute_script("return VP.canvas.state.width + '×' + VP.canvas.state.height;")
+        == "64×16",
+        "the canvas did not become a rectangle",
+    )
+
+    # Back to a 16 x 16 square, and locked again, for the rest of the run.
+    fx.execute_script(
+        "document.getElementById('size-lock').click();"
+        "const x = document.getElementById('size-x');"
+        "x.value = '16';"
+        "x.dispatchEvent(new Event('change', {bubbles: true}));"
+    )
+    time.sleep(0.4)
+    panel = fx.execute_script(
+        "return getComputedStyle(document.getElementById('resize-panel')).display;"
+    )
+    if panel != "none":
+        fx.click("#resize-confirm")
+        time.sleep(0.5)
+
     # A photo larger than the working cap has to be downscaled, and the
     # downscale used to hand an ImageData straight to drawImage, which
     # Firefox refuses. Every image in the suite was under the cap, so

@@ -95,7 +95,8 @@ def main() -> int:
         canvas = firefox.execute_script(
             "const c = document.getElementById('art-canvas');"
             "const r = document.getElementById('canvas-region');"
-            "return {size: VP.canvas.state.size, scale: VP.canvas.state.scale,"
+            "return {size: VP.canvas.state.width + '×' + VP.canvas.state.height,"
+            " scale: VP.canvas.state.scale,"
             " css: Math.round(c.getBoundingClientRect().width), room: r.clientWidth};"
         )
         check(
@@ -200,7 +201,7 @@ def main() -> int:
         time.sleep(1.5)
         converted = firefox.execute_script(
             "return {cells: VP.canvas.state.grid.filter(v => v >= 0).length,"
-            " size: VP.canvas.state.size};"
+            " size: VP.canvas.state.width + '×' + VP.canvas.state.height};"
         )
         check(
             "the conversion painted the canvas",

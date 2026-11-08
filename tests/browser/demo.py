@@ -100,8 +100,7 @@ def run(firefox: Marionette, base: str, shots: Path) -> None:
     firefox.execute_script(
         """
         VP.palette.switchTo('Void Full');
-        VP.canvas.state.size = 32;
-        VP.canvas.resize(32);
+        VP.canvas.resize(32, 32);
         VP.canvas.setGrid(new Int8Array(1024).fill(-1));
         """
     )
@@ -142,7 +141,7 @@ def run(firefox: Marionette, base: str, shots: Path) -> None:
     firefox.screenshot(str(shots / "04-workspace.png"))
 
     print("• the pipeline: extract, tune, convert")
-    firefox.execute_script("VP.workspace.state.convertSize = 32; VP.workspace.updateCellSize();")
+    firefox.execute_script("VP.canvas.resize(32, 32); VP.workspace.updateCellSize();")
     firefox.execute_script("VP.workspace.extract();")
     time.sleep(0.4)
     firefox.execute_script("VP.workspace.applyPreset('sprite pop');")

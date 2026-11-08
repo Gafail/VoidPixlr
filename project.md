@@ -3040,6 +3040,16 @@ Every hue has the same depth, the ramps run dark to light with cool
 shadows and warm highlights, and the neutrals fill the rest with the greys
 and the earths.
 
+**Two faults the rework surfaced, and they were not about rectangles at
+all.** The reference underlay lives in a buffer at the canvas's size, so a
+resize made a new one — and nothing resampled the photo into it. **The
+reference simply vanished on every resize**, square or not. The resample
+itself read the buffer's width for both axes, so on a rectangle it squashed
+the photo into the wrong shape. And a second change to the size dropdowns
+built on the canvas's *current* size rather than the *pending* one: set X to
+64, then Y to 32, and the panel said "16 × 32" — the 64 was silently
+thrown away.
+
 **How it is guarded now.** The balance is a *test*, not a promise. The node
 suite classifies every colour of every built-in into a hue family — the
 nearest family on the wheel, with the saturation floor that separates the
