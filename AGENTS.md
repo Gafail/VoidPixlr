@@ -81,7 +81,7 @@ pane and the photo layer went with the pipeline.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 99 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 102 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images

@@ -99,7 +99,7 @@ are deliberately not stored in this repo, so they are done by hand.
 ## Testing
 
 ```bash
-node tests/voidpixlr.test.mjs        # 99 logic checks
+node tests/voidpixlr.test.mjs        # 102 logic checks
 
 python3 tools/make-test-images.py /tmp/vp-images
 python3 tests/browser/e2e.py          # 66 end-to-end checks in a real Firefox
