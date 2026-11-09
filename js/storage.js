@@ -1,10 +1,8 @@
 /* ==========================================================================
    VoidPixlr — storage.js
    --------------------------------------------------------------------------
-   Local persistence. Nothing here ever talks to a server: the only stores
-   touched are `localStorage` (the artwork, the palettes and the preferences)
-   and IndexedDB (the photo, because a photo is megabytes and localStorage is
-   a synchronous ~5 MB string store).
+   Local persistence. Nothing here ever talks to a server: the only store
+   touched is `localStorage`.
 
    Three localStorage keys, exactly as specified:
 
@@ -28,10 +26,6 @@
     palettes: "voidpixlr:palettes:v2",
     prefs: "voidpixlr:prefs:v2",
   };
-
-  const DB_NAME = "voidpixlr";
-  const DB_STORE = "source";
-  const DB_KEY = "photo";
 
   S.KEYS = KEYS;
 
@@ -158,91 +152,15 @@
     }
   };
 
-  /* --- the photo (IndexedDB) ---------------------------------------------------- */
-
-  function openDb() {
-    return new Promise((resolve, reject) => {
-      let request;
-      try {
-        request = root.indexedDB.open(DB_NAME, 1);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  /* The photo's original Blob, its file name and its type. Never uploaded. */
-  S.savePhoto = function savePhoto(blob, name, type) {
-    return openDb().then(
-      (db) =>
-        new Promise((resolve, reject) => {
-          const transaction = db.transaction(DB_STORE, "readwrite");
-          const objectStore = transaction.objectStore(DB_STORE);
-          objectStore.put({ blob, name, type }, DB_KEY);
-          transaction.oncomplete = () => {
-            db.close();
-            resolve(true);
-          };
-          transaction.onerror = () => {
-            db.close();
-            reject(transaction.error);
-          };
-        })
-    ).catch(() => false);
-  };
-
-  S.loadPhoto = function loadPhoto() {
-    return openDb().then(
-      (db) =>
-        new Promise((resolve, reject) => {
-          const transaction = db.transaction(DB_STORE, "readonly");
-          const request = transaction.objectStore(DB_STORE).get(DB_KEY);
-          request.onsuccess = () => {
-            db.close();
-            resolve(request.result || null);
-          };
-          request.onerror = () => {
-            db.close();
-            reject(request.error);
-          };
-        })
-    ).catch(() => null);
-  };
-
-  S.deletePhoto = function deletePhoto() {
-    return openDb().then(
-      (db) =>
-        new Promise((resolve, reject) => {
-          const transaction = db.transaction(DB_STORE, "readwrite");
-          transaction.objectStore(DB_STORE).delete(DB_KEY);
-          transaction.oncomplete = () => {
-            db.close();
-            resolve(true);
-          };
-          transaction.onerror = () => {
-            db.close();
-            reject(transaction.error);
-          };
-        })
-    ).catch(() => false);
-  };
-
   /* --- forgetting everything ------------------------------------------------------ */
 
-  /* Removes all three localStorage keys and deletes the photo, then reloads
-     the app into a clean first-run state. */
+  /* Removes all three localStorage keys, then reloads the app into a clean
+     first-run state. */
   S.forgetEverything = function forgetEverything() {
     removeRaw(KEYS.canvas);
     removeRaw(KEYS.palettes);
     removeRaw(KEYS.prefs);
-    return S.deletePhoto();
+    return Promise.resolve(true);
   };
 })(
   typeof globalThis !== "undefined"

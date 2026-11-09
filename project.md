@@ -1,4 +1,4 @@
-# VoidPixlr — Project Specification (v2.0)
+# VoidPixlr — Project Specification (v2.1)
 
 > A pixel canvas that earns its keep. Still no chrome you didn't ask for.
 
@@ -12,7 +12,39 @@ Every section ends with a **Decision** block recording the choices made for v2.
 
 > **Revision log**
 >
-> - **r1 (2026-11-08)** — reference-image underlay + the 256×256 canvas.
+> - **r15 (2026-11-09)** — **the split.** VoidPixlr and VoidPixelatr were one
+>   project with two ideas in it, and are now two. VoidPixlr (this folder) is
+>   the **drawing tool**: a blank square canvas, a palette, a PNG.
+>   VoidPixelatr (`~/Desktop/voidpixelatr/`) is the **photo pipeline**: load a
+>   photo, frame it under a grid, adjust it, extract a palette, convert,
+>   export.
+>
+>   The split was drawn along the **idea**, not along the code. Everything
+>   that exists to draw pixel art by hand lives here; everything that exists
+>   to turn a photograph into pixel art lives in the sibling project.
+>   Consequences:
+>
+>   1. **The photo half is gone.** No photo, no source pane, no grid
+>      overlay, no adjustments, no palette extraction, no conversion (§3,
+>      §7, §8).
+>   2. **The canvas is square, 16 / 32 / 64 only.** The X and Y dropdowns,
+>      the lock and the rectangles went to VoidPixelatr, where the output
+>      shape follows the photograph. This app makes art, and art is square
+>      and small (§3, §6).
+>   3. **The size ladder is 16, 32, 64** — not 16 to 512.
+>   4. **A dropped file is imported as artwork.** A PNG is snapped to the
+>      palette; a JSON file is a project. The drop-anywhere behaviour stayed
+>      and was repurposed (§8.5).
+>   5. **The storage namespace is unchanged** — `voidpixlr:*`. The sibling
+>      project has its own (§9.1).
+>   6. **The project JSON format is unchanged**, so a conversion made in
+>      VoidPixelatr opens here. A file whose size is not 16, 32 or 64 is
+>      refused rather than silently rescaled (§8.2).
+>
+>   The container, the deploy, the registry row and the GitHub remote are
+>   **this project's alone**.
+>
+> - **r14 (2026-11-08)** — **the handoff notes the r14 build.**> - **r1 (2026-11-08)** — reference-image underlay + the 256×256 canvas.
 >   Rewrote §6 around a layered buffer model.
 > - **r2 (2026-11-08)** — palette ladder of **16 / 32 / 64** colours. Added
 >   the **palette generator** (image → palette) and the **palette
@@ -323,9 +355,9 @@ If something is not specified here, it is out of scope.
 
 ## 1. Purpose & Positioning
 
-VoidPixlr is a browser-based pixel-art canvas for drawing 16–256 px art. It
-runs as a static site on the LAN, stores nothing but the user's own work on
-their own machine, and never talks to a server.
+VoidPixlr is a browser-based pixel-art canvas. It runs as a static site on
+the LAN, stores nothing but the user's own work on their own machine, and
+never talks to a server.
 
 The product thesis is unchanged from v1 and still load-bearing:
 
@@ -334,112 +366,71 @@ The product thesis is unchanged from v1 and still load-bearing:
 - Zero decisions to make before drawing.
 
 What changed is the **ceiling**, not the floor. v1 could make a 16×16 sprite.
-v2 can put a photograph under a 256×256 grid and trace it into a real sprite
-with a palette you built, a symmetric body, and export it as a PNG.
+v2 can make a 32×32 or a 64×64 one, with the palette, the symmetry, the
+zoom and the resize all in the way.
 
-### 1.1 The image-to-pixel-art pipeline
+### 1.1 What it is
 
-The centre of the product is a four-stage pipeline that runs entirely in the
-browser:
+The whole product is a **drawing surface**:
 
 ```
    ┌─────────┐    ┌──────────┐    ┌───────────┐    ┌─────────────┐
-   │  LOAD   │───▶│  FRAME   │───▶│  PALETTE  │───▶│  CONVERT    │
-   │  photo  │    │ pan/zoom │    │ 16/32/64  │    │  to grid    │
-   │  local  │    │ + adjust │    │ + tune    │    │  + dither   │
+   │  START  │───▶│   DRAW   │───▶│  PALETTE  │───▶│    EXPORT   │
+   │  blank  │    │ drag,    │    │ 16/32/64  │    │  PNG, JSON  │
+   │  canvas │    │ erase,   │    │ built-in  │    │  clipboard  │
+   │  16/32/ │    │ symmetri │    │ or your   │    │             │
+   │   64 px │    │ se, undo │    │ own       │    │             │
    └─────────┘    └──────────┘    └───────────┘    └─────────────┘
-        │               │               │                │
-        └───────────────┴───────────────┴────────────────┘
-                              │
-                     never leaves the device
 ```
 
-1. **Load** — a photo from the file picker, a drag-and-drop, or the clipboard.
-   Decoded locally; no request is ever made for it (§2.3).
-2. **Frame** — move and zoom the photo under a fixed grid, and adjust its
-   saturation, contrast and levels. The grid decides what will be converted
-   and at what resolution; your framing decides *what part* of the photo and
-   at what detail (§8.7).
-3. **Palette** — extract 16, 32 or 64 colours from the framed region
-   (§5.4), then tune them for sprite work: saturation, contrast, value,
-   hue, posterise, normalise (§5.5).
-4. **Convert** — sample the framed region into the grid, average the colours
-   per cell, and match each cell to the nearest palette colour — flat,
-   Bayer-dithered, error-diffused, or clustered (§8.8).
+1. **Start** — a blank square canvas, 16, 32 or 64 pixels a side. Nothing
+   else is asked.
+2. **Draw** — drag-paint the active colour, erase, mirror with symmetry,
+   and undo if a stroke goes wrong (§7).
+3. **Palette** — the Void Palette (16), Void Expanded (32) and Void Full (64)
+   ship built in and are nested, so switching between them never disturbs
+   the art. Build your own at 16, 32 or 64 (§5).
+4. **Export** — a PNG at 1× / 4× / 8× / 16× / 32×, transparent or on a
+   solid background; a JSON project file; or a copy straight to the
+   clipboard (§8).
 
-### 1.2 Two independent axes: resolution and field of view
+### 1.2 The canvas is square, and it is small
 
-The grid size and the framing are **independent**, and that is what lets one
-photo become any of these without a crop tool in sight:
+**16, 32 or 64 pixels a side.** That is the product, not a limitation.
 
-| Axis | Controlled by | Meaning |
-|---|---|---|
-| **Resolution** | the grid size (16 → 256) | How many pixels the output has. |
-| **Field of view** | pan and zoom | How much of the source each output pixel covers — the detail level. |
+A pixel-art sprite is small and square. A 64×64 canvas is 4096 cells and
+every one of them is addressable in a single click; 128×128 is 16 384 and
+the grid lines start to crowd the art. The rectangle and the larger sizes
+were carried for a while because the *photo* half of the old project
+needed them — a photograph's aspect ratio is often not a square's, and a
+256×256 conversion had somewhere to go.
 
-| What you want | How | Result |
-|---|---|---|
-| **The whole image** | `Fit`, grid 64 | The entire photo becomes a 64×64 sprite. |
-| **A face** | Zoom in until the face fills the grid, grid 32 | A 32×32 face sprite, sampled from the pixels actually on the face. |
-| **A corner or section** | Pan to it, grid 16 or 32 | A small sprite of that section — a detail, a background tile, a texture. |
+**That reasoning went with the photo.** Converting a photograph is
+**VoidPixelatr**'s job (`~/Desktop/voidpixelatr/`), and the grid it
+converts into follows the shape of the picture. What is left here is
+hand-made art, and hand-made art is square and small.
 
-Zooming in does **not** change the output resolution — it changes the
-**detail per pixel**. Zooming in on a 32×32 grid is how you get a *sharp*
-32×32 face rather than a soft one, because each cell then averages a much
-smaller piece of the photo.
-
-The same split applies to colour, and both halves are needed:
-
-| Lever | Acts on | Changes |
-|---|---|---|
-| **Source adjustments** (§8.7.4) | the photo's pixels, *before* sampling | Which cells end up brighter or more separated — it can rescue a flat photo that would average to mud. |
-| **Palette tuning** (§5.5) | the extracted colours, *after* sampling | What those colours are called — it can punch up a dull palette without touching the image's structure. |
-
-Alongside that pipeline sits the **reference underlay** (§8.6): the same photo,
-non-destructively, under the grid you paint on. One photo, two routes:
-
-| Route | Result | Effort |
-|---|---|---|
-| **Convert** | The photo becomes pixel art immediately | Seconds |
-| **Trace** | The photo sits under the grid; you paint it by hand | Minutes, and better art |
-
-### 1.3 Two layers, honestly
-
-"**No layers**" was the wrong phrase, and it is worth correcting while the
-spec is still cheap to change.
+### 1.3 One layer, honestly
 
 There is no *layer system* — no stack, no per-layer opacity, no blend modes,
-no layer ordering, no layer panel, no way to have three of anything. That is
-what the promise meant, and it still holds.
+no layer ordering, no layer panel, no way to have three of anything.
 
-But the app is not one layer deep. It composites exactly **two**:
+And there is only **one** layer: the artwork. What used to be the second
+layer — the source photograph, traced by hand under the grid — is gone with
+the rest of the photo half. If you want to trace a photograph, that is
+VoidPixelatr: convert it, then bring the result here.
 
-| # | Layer | What it is | Editable? | Exported? |
-|---|---|---|---|---|
-| 1 | **Source** | The photo — decoded, adjusted, positioned under the grid | Moved, scaled and colour-adjusted, but never painted on | **No** — it is a guide |
-| 2 | **Pixel** | The artwork — a grid of palette indices | Painted on, cell by cell | **Yes** — this is the output |
-
-The source layer sits *under* the pixel layer — or over it, at partial
-opacity, in `Over` mode (§8.6.3) — and the pixel layer is opaque wherever it
-has been painted. Everything else in the app is a view onto these two.
-
-Why the distinction is worth stating plainly:
-
-- The export contains **only the pixel layer**. The source is never baked
-  into an export, never into the JSON, and never into `grid`.
-- Converting is a **one-way merge**: the source layer is sampled, matched to
-  the palette, and written into the pixel layer. After that the source is a
-  guide again and can be moved or cleared without touching the art.
-- There is no third layer and no way to add one.
+The export contains the artwork and nothing else. The grid is the artwork.
 
 ### Decision
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder, the registry
-  row, and the house naming convention). "VoidPixelr" is retired.
-- **Version:** 2.0 (revision r14)
+  row, and the house naming convention).
+- **Version:** 2.1 (revision r15)
 - **Target user:** Anyone drawing pixel art in a browser on the LAN, from
-  10-minute doodles to serious sprite work and photo tracing.
+  10-minute doodles to serious sprite work.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
   accounts, mobile-first design, drawing-community features.
+- **The photo half is VoidPixelatr's.** See §1.2.
 - **Sibling-tool pattern adopted:** VoidFlippr's "daily prompt" and
   VoidWalkr's "share a link" ideas are deliberately **not** carried over.
   VoidPixlr stays local-first with no server at all — see §13.
@@ -505,8 +496,8 @@ canvas. §2.3 and §8.6.1 specify the `ImageData` path.
 ### 2.3 The no-upload guarantee
 
 This is the project's strongest promise and it is a **testable property**, not
-a policy statement. It applies to every image the user brings in: the
-reference underlay, the palette generator, and the conversion pipeline.
+a policy statement. It applies to every file the user brings in: the
+PNG import, the JSON import, and anything dropped on the page or pasted.
 
 **The mechanism.** A user image enters the app through exactly one route:
 
@@ -593,11 +584,11 @@ The promise is enforced by architecture — there is no upload endpoint to abuse
 
 ---
 
-## 3. Core Features (v2)
+## 3. Core Features (v2.1)
 
 | # | Feature | Behaviour |
 |---|---------|-----------|
-| F1 | Canvas sizes | 16×16, 32×32, 64×64, 128×128, **256×256**. One at a time. |
+| F1 | Canvas sizes | **16×16, 32×32, 64×64.** One at a time. |
 | F2 | Default palette | The 16-colour Void Palette ships built-in and is active on first load. |
 | F3 | Custom palettes | User builds, names, saves and switches palettes. Sizes of 16, 32 or 64 colours. |
 | F4 | Edit a colour | Change any swatch's colour via a colour picker; reorder; delete. |
@@ -605,9 +596,9 @@ The promise is enforced by architecture — there is no upload endpoint to abuse
 | F6 | Eraser | Explicit erase mode (`E` key or eraser swatch). Right-drag is an accelerator. |
 | F7 | Drag-paint | Left-drag paints the active colour along the whole stroke. |
 | F8 | Symmetry | Off / mirror X / mirror Y / mirror both. Applies to every paint op. |
-| F9 | Undo / redo | 50-level stack (20 at 256×256), stroke-granular. `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`. |
+| F9 | Undo / redo | 50-level stack, stroke-granular. `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`. |
 | F10 | Grid toggle | Show/hide 1px grid lines over the canvas. |
-| F11 | Zoom | 4× / 8× / 16× / 32× art-pixel scale, plus **Fit**. |
+| F11 | Zoom | 1× / 2× / 4× / 8× / 16× / 32× / 64× art-pixel scale, plus **Fit**. |
 | F12 | New (clear) | Clears the canvas at the current size, with inline confirmation. |
 | F13 | Resize | Change canvas size preserving art via centre-anchored crop/expand. |
 | F14 | Export PNG | Scale 1× / 4× / 8× / 16× / 32×, capped at 4096×4096. Transparent or solid background. |
@@ -617,32 +608,24 @@ The promise is enforced by architecture — there is no upload endpoint to abuse
 | F18 | Copy PNG | Writes the PNG to the clipboard; falls back to download off a secure context. |
 | F19 | Autosave | The current canvas and palettes persist locally, restored on load. |
 | F20 | Forget everything | One control that wipes all local data. |
-| **F21** | **Reference underlay** | **Load a local image and display it under (or over) the grid as a tracing guide.** |
-| **F22** | **Image drop & paste** | **Drop an image onto the canvas, or paste one from the clipboard, to load it.** |
-| **F23** | **Underlay modes** | **Off / Under / Over, with an opacity control.** |
-| **F24** | **Underlay fit** | **Cover / Contain / 1:1 — how the image maps onto the grid.** |
-| **F25** | **Clear reference** | **Removes the reference image without touching the art.** |
-| **F26** | **Image workspace** | **A dedicated area for the frame → palette → convert pipeline, beside the canvas.** |
-| **F27** | **Pan & zoom framing** | **Move and scale the source image freely under a fixed grid overlay. No cropping.** |
-| **F28** | **Source adjustments** | **Saturation, contrast, brightness, hue, levels and greyscale applied to the photo *before* it is sampled.** |
-| **F29** | **Palette generator** | **Extract 16, 32 or 64 colours from the framed region. Deterministic.** |
-| **F30** | **Palette transformation** | **Saturation, brightness, contrast, hue, posterise, normalise — tuned for sprite work.** |
-| **F31** | **Grid conversion** | **Convert the framed region to pixel art: cell colour averaging → nearest palette match, with four matching methods.** |
+| **F21** | **Drop and paste** | **A file dropped anywhere on the page, or pasted from the clipboard, is imported as artwork.** |
 
 ### Decision
-- **F1–F10, F14, F15** are v1 features, upgraded.
-- **F3, F4, F7, F8, F9, F11, F13, F16, F17, F19, F20** are new in v2.
-- **F21–F25** are new in r1 — the reference underlay.
-- **F26–F31** are new in r2–r4 — the full image pipeline: workspace, framing,
-  source adjustments, palette generator, palette tuning, grid conversion.
-- **There is no crop.** Framing is pan-and-zoom under a fixed grid (§8.7).
+- **F2–F14, F18–F20** are the v1 features, upgraded.
+- **F3, F4, F7, F8, F9, F11, F13, F16, F17** are new in v2.
+- **F21 is new in r15.** The drop-anywhere behaviour stayed when the photo
+  half went; it now imports *artwork* rather than a photograph (§8.5).
+- **F1 is the biggest change in r15.** 16 / 32 / 64 only, square only. The
+  X and Y dropdowns, the lock and the rectangles went to VoidPixelatr
+  (§1.2).
+- **There is no photo.** No reference image, no source pane, no grid
+  overlay, no adjustments, no palette extraction, no conversion. Those are
+  VoidPixelatr's, and the menu is two sections rather than five (§4).
 - **F6 changes v1's model:** see §7.1.
 - **F13 (Resize) is new** and is the answer to v1's "changing size wipes your
   work" problem.
 - Multi-level undo/redo (F9) is **required**, not optional: with drag-paint, a
   single-level undo would discard an entire stroke.
-- **The reference image is never uploaded and never leaves the browser.** It is
-  decoded locally into memory and discarded on reload.
 - Selection, copy/paste, fill bucket, shape tools, a layer system, onion
   skin and animation remain out (§15).
 
@@ -650,220 +633,57 @@ The promise is enforced by architecture — there is no upload endpoint to abuse
 
 ## 4. UI Layout
 
-Same three-region shape as v1, denser. CSS grid: three rows (`top`, `center`,
-`bottom`) and two columns (`sidebar`, `main`).
+Three regions: a top bar, a menu column on the left, the canvas in the
+middle, and a bottom bar. CSS grid, four rows (`top`, `alert`, `panels`,
+`centre`, `bottom`) and two columns (`sidebar`, `centre`).
 
 ### 4.1 Top Bar (~48px)
 - Wordmark `VoidPixlr`, text only, top-left.
-- `Load photo` — always visible; the one way in that is never hidden (§16.11).
-- **Size group: `X [▾]` `Y [▾]` and a lock button.**
-  - Each dropdown offers **16, 32, 64, 128, 256, 512**. Never free text: the
-    canvas is one of the allowed sizes or it is not a canvas this app draws.
-  - **Locked** (the default), X and Y always match and the canvas is square.
-    Changing either sets both.
-  - **Separate**, the two edges are independent and the canvas can be a
-    rectangle — a 64 × 16 sprite sheet row, a 16 × 128 banner.
-  - The lock button says which mode it is in: `linked` or `separate`.
-- Symmetry button, cycling `—` `⇋` `⇅` `⇔`.
-- Grid toggle `G`.
-- `Undo` / `Redo` buttons.
-- `Image` — toggles the **Image workspace** (§4.6).
+- **Size group: a single `[▾]` dropdown.** It offers **16, 32, 64** and
+  nothing else — never free text, because the canvas is either one of the
+  allowed sizes or it is not a canvas this app draws. The canvas is square,
+  so there is no second edge and no lock (§1.2).
+- **Grid group:** a single on/off button for the grid lines over the canvas.
+- **Symmetry group:** a single button cycling off → X → Y → both.
+- `Undo` and `Redo`.
 
-The canvas's **zoom lives with the canvas**, not here: each pane owns its
-own zoom slider, and two controls for one value is duplication (§4.6).
-
-### 4.1.1 Reference controls (second row, ~36px, right-aligned)
-
-A thin strip under the top bar, only visible when a reference is loaded:
-
-- `Reference` — opens the file picker (or shows the file name once loaded).
-- Mode cycle: `Off` / `Under` / `Over`.
-- Opacity slider, 0–100%, default 50%.
-- Fit cycle: `Cover` / `Contain` / `1:1`.
-- `Clear` — removes the reference (F25).
-- A dimmed label: **`never uploaded`** — always visible next to the controls,
-  because "is this uploading my photo?" is the first question anyone has.
-
-The strip is a row, not a panel. When no reference is loaded the row is
-hidden entirely — the tool shows nothing it has nothing to show.
+There is no `Load photo` button and no mode switch. Both went with the
+photo half.
 
 ### 4.2 The menu (~268px, on the left)
 
-**One column, and everything in it drops open.** There used to be two
-columns of controls — the palette on the far left, and the Image mode's
-controls beside it — and they were both open at the same time. The screen
-was a wall of sliders before anything had been drawn.
+One column, and everything in it drops open. There are **two sections**:
 
-The menu is a scrolling column with a **pinned footer**, and it holds five
-sections, each of which is a header that opens a body. Only the headers are
-on screen until a section is wanted:
-
-| Section | Opens |
+| Section | What it holds |
 |---|---|
-| **Palette** | The palette selector (a dropdown of saved palettes and the built-ins), the name field, `Save` / `Copy` / `Delete`, and **`Generate from image…`** (§5.4). |
-| **Colours** | A **pop-over**, not a body — see below. |
-| **Adjust** | The source adjustments (§8.7.4). Image mode only. |
-| **Extract** | The palette extraction and tuning (§5.4, §5.5). Image mode only. |
-| **Convert** | The target readout, the sample method and the match method (§8.8). Image mode only. |
+| **Palette** | The palette picker, its name, save / copy / delete |
+| **Colours** | A header that opens the colour pop-over — see below |
 
-Each header carries the one fact worth knowing without opening anything: the
-palette's name, the colour count, the adjustment state, the extract count,
-the target size. The sections are independent — two of them can be open at
-once, because a conversion usually wants the adjustments and the target
-size together.
+The colours are a **pop-over**, not a section: a sixty-four swatch grid takes
+more room than the whole menu, and it is wanted for a moment at a time
+rather than all the time. It floats over the canvas, positioned in script so
+it can never open off the edge of the window, and closes on a click
+elsewhere or on `Escape`.
 
-**The colours are a pop-over.** A sixty-four swatch grid is sixteen rows —
-taller than the whole menu — and it is wanted for a moment at a time rather
-than all the time. The `Colours` header opens a floating panel beside it,
-over the canvas, holding:
+### 4.3 Centre — one column
 
-- The **swatch grid** — 4 columns, 30×30 px tiles, with a 2px accent
-  outline on the active swatch. The grid **scrolls vertically** inside the
-  pop-over.
-- An **eraser tile** at the top of the grid, visually distinct (diagonal
-  slash). Its index is `-1` in the active palette but it is **not** a
-  palette entry.
-- Below the grid: `+ Add colour` (opens the colour picker), `⇅ Reorder`
-  (drag-to-reorder), `🗑 Remove colour`.
-- The **active colour**: a colour input and a hex field.
-
-The pop-over is positioned in script from the button that opened it, so it
-can never open off the edge of the window, and it closes on a click
-anywhere else or on `Escape`. It is **not** a native `<dialog>`.
-
-**The pinned footer** carries `Apply to canvas` (§4.6) and the workspace's
-status line. It is never scrolled out of reach and never sliced in half by
-the edge.
-
-### 4.3 Centre
-- The canvas, centred in the remaining space, inside a scrollable region.
-- Canvas border: 1px solid `var(--accent-soft)`, `box-shadow: 0 0 12px var(--accent-soft)`.
-- Grid lines drawn onto the canvas (not DOM), toggleable.
-- **Drop target:** dragging an image file over the canvas highlights the
-  canvas border and shows `drop to reference`.
-- The canvas has a **header** — the word `Canvas`, a **zoom slider**, the
-  zoom readout and a `Fit` button. The header is a bar, not an overlay on
-  the artwork.
-
-### 4.3.1 The columns of the Image mode
-
-The centre is one row of columns, and the canvas is always the last of
-them, so the layout never reorders itself under the user:
-
-    [ source ] [ canvas ]
-
-In the Draw mode the source is hidden and the canvas has the room to
-itself. **The controls are not a column**: they are in the menu, on the
-left, where every other control lives (§4.2). The centre holds the photo
-and the canvas and nothing else.
+The canvas, and nothing else. The source pane is gone; the centre holds the
+artwork and the empty space around it.
 
 ### 4.4 Bottom Bar (~48px)
-Left-aligned within the centre column: `Export PNG` · `Export JSON` ·
-`Import` · `Copy PNG` · `Forget everything`.
-
-`Import` opens a small inline panel (not a modal) with three buttons:
-`Import JSON…`, `Import PNG…` and `Load PNG as reference…`, the last two
-backed by hidden `<input type="file">` elements.
+- `New` — clears the canvas, with an inline two-step confirmation.
+- `Import` — opens the inline import panel.
+- `Export PNG` — opens the inline export panel (scale and background).
+- `Export JSON` — writes the project file.
+- `Copy PNG` — writes the PNG to the clipboard.
+- `Forget everything` — one control that wipes all local data, with an
+  inline two-step confirmation.
 
 ### 4.5 What is still absent
-No settings panel. No modal dialogs. No status bar. No accounts. No tooltips
-in v2 (the UI is legible enough without them). No logo image.
-
-### 4.6 The Image workspace
-
-Toggled by the `Image` button in the top bar. It does **not** replace the
-canvas: it adds the source pane beside the canvas, and the canvas becomes
-the live result. The menu stays visible, and the Image mode's own controls
-**join the menu** as three more sections — Adjust, Extract and Convert
-(§4.2). The centre is left with the photo and the canvas.
-
-```
-┌────────────┬──────────────────────────────┬───────────────────┐
-│ MENU       │  source image, pannable and  │  the canvas: the  │
-│            │  zoomable, under a grid that  │  artwork, with the │
-│  Palette   │  has a zoom and a pan of     │  live conversion   │
-│  Colours   │  its own                     │  drawn over it     │
-│  Adjust    │                              │                   │
-│  Extract   │  GRID  ▭ 4px  Fit            │  zoom slider       │
-│  Convert   │  PHOTO ▭ 1.2×  Fit  Pixel    │  Fit               │
-├────────────┤                              │                   │
-│ Apply to   │                              │                   │
-│ canvas     │                              │                   │
-└────────────┴──────────────────────────────┴───────────────────┘
-```
-
-**There is one art canvas.** The workspace used to hold a second canvas
-that showed a copy of the result at a different scale. That copy is gone:
-the live conversion is a **layer over the artwork in the same canvas** (§6.2),
-drawn from the same grid, at the canvas's own zoom. One size, one grid, one
-canvas — the Draw mode and the Image mode are two views of the same artwork,
-not two canvases that have to be kept in step.
-
-**Each view zooms on its own — and there are three of them.** The source
-pane and the canvas each have a **zoom slider** in their own header, and
-neither one moves the other. Zooming the photo does not zoom the pixel art.
-The sliders are logarithmic: the top of the range is where the detail is,
-and a linear slider would spend most of its travel on the two or three zoom
-levels nobody uses.
-
-**The grid is a third view, and it has its own zoom and its own pan**
-(§8.7.2, §8.7.3). The grid is not pinned to the corner of the pane, and it
-is not slaved to the photo's zoom: it decides *which* part of the photo is
-converted, and the photo decides *how* that part is magnified. The source
-pane's header therefore carries two labelled groups — `GRID` and `PHOTO` —
-because two unlabelled sliders side by side are a coin toss.
-
-**Adjust** — the source adjustments: black point, white point, brightness,
-contrast, saturation, hue shift, greyscale, and an `Auto levels` button
-(§8.7.4). The framing lives in the pane's header, with the thing it frames
-(§8.7.3).
-
-**Extract** — colour count `16 / 32 / 64` (default 32), the `Extract`
-button, and the result count. Extraction reads the **framed region** — the
-same sampled grid the converter will match against — so the palette always
-describes the pixels that will be converted. Then *Tune*: saturation,
-brightness, contrast, hue shift and posterise sliders, plus presets (§5.5).
-The swatches preview the tuned palette live, and the pixel result
-re-renders as you drag (§8.8.4). `Apply` writes it to the target palette;
-`Cancel` discards.
-
-**Convert** — the target is the canvas's own size, shown as a readout. **The
-workspace has no size of its own** — the grid it converts into is the
-canvas's grid, so there is one answer to "how big is the artwork", not two.
-Then the sample method `Average` / `Nearest` (§8.8.1) and the match method
-`Flat` / `Bayer` / `Floyd` / `Clustered` (§8.8.2).
-
-The live result is drawn **over the artwork**, so the artwork underneath is
-still there while you work. `Apply to canvas` writes the result into the
-grid — an ordinary, undoable canvas edit — and takes the layer off again.
-Closing the workspace also takes the layer off, so the Draw mode shows the
-artwork and only the artwork.
-
-### Decision
-- Layout: CSS grid, `top` / `center` / `bottom` rows, `sidebar` / `main` columns.
-- The reference strip is a **second top-bar row**, not a sidebar panel or a
-  modal. It appears only when there is a reference to control.
-- The `never uploaded` label is permanent, not dismissible. It is the cheapest
-  possible trust signal and it is load-bearing for this feature.
-- **The Image workspace is a mode, not a modal.** It adds the source pane
-  beside the canvas, toggled from the top bar; the canvas and the menu
-  remain visible or return to their previous state when it closes.
-- **There is one menu, on the left.** The Image mode's controls are
-  sections in it, not a column of their own. The centre holds the photo
-  and the canvas and nothing else.
-- **The colours are a pop-over.** A sixty-four swatch grid does not belong
-  in a column that is always on screen.
-- **The workspace is non-destructive until `Apply to canvas`.** Every stage
-  is a preview.
-- The swatch grid is 4 columns and scrolls; the menu is a fixed 268 px.
-- "Forget everything" lives in the bottom bar as a dimmed text button, not in
-  a settings panel — it must be reachable in one click, because its whole job
-  is to be findable when someone wants their data gone.
-- **No native `<dialog>` modals.** Every confirmation is an inline label
-  change or an inline panel. The house aesthetic and the v1 promise both hold.
-- Target viewport ≥ 1024px. It must not break below that; it is not optimised
-  for mobile. Pointer events make touch work incidentally, but mobile layout
-  is still out of scope.
+- No dialogs. Every panel is inline, in the flow of the page.
+- No accounts, no sign-in, no cloud, no history feed, no share button.
+- No layers, no onion skin, no animation, no fill bucket, no shapes.
+- No upload button — because there is no upload.
 
 ---
 
@@ -984,125 +804,29 @@ deep.
 - A palette at 64 colours cannot grow further; the `+ Add colour` button is
   disabled at the limit with the label `palette full (64)`.
 
-### 5.4 The palette generator — image to palette
+### 5.4 The palette generator — VoidPixelatr's
 
-The palette tool can build a palette from an image, entirely in the browser.
+The generator takes an image and produces a palette from it. That is a
+**pipeline** feature: it needs a picture to read, and this app has no
+pictures any more.
 
-#### 5.4.1 The algorithm
+It lives in **VoidPixelatr** (`~/Desktop/voidpixelatr/`), along with the
+palette transformation below, the source adjustments and the conversion that
+uses them. The two projects share the **palette ladder** — the same sixteen
+colours, nested the same way, checked by the same node test against the same
+tables — and nothing else about the generator.
 
-Deterministic: the same image, framing, adjustments and colour count always
-produce the same palette. No randomness, no seeds.
+What stays here is the palette **model**: the built-ins (§5.1), the custom
+palettes (§5.2), the colour editing (§5.3), and the re-indexing that keeps
+the artwork intact when the palette changes.
 
-1. **Collect.** The palette is extracted from **the same sampled grid the
-   converter uses** (§8.8.1) — the `size × size` cells currently under the
-   grid overlay, after the source adjustments. Each cell contributes one RGB
-   triplet. This is deliberate: it guarantees the palette describes exactly
-   the pixels that will be matched against, with no second resampling in
-   between and no chance of the two drifting apart.
-   - If the workspace is closed, the whole reference image is sampled to a
-     256×256 grid first, and that is what the palette comes from.
-   - Cells whose pixels are fully transparent contribute nothing.
-   - Because the sample grid follows the current grid size, changing the grid
-     size changes what the palette is derived from. Re-extracting is one
-     click, and the panel says when the palette is stale.
-2. **Median cut** to K boxes:
-   - Start with one box holding every collected pixel.
-   - Repeatedly split the box with the **largest colour range** along its
-     widest channel, at the **median** of that channel, until there are K
-     boxes.
-3. **Average.** Each box's colour is the mean of its pixels.
-4. **Refine (Lloyd's algorithm, 8 iterations).** Assign every pixel to the
-   nearest box colour, recompute each box colour as the mean of its
-   pixels, repeat. This pulls the colours toward their real clusters and
-   separates the near-duplicates a plain median cut leaves behind.
-5. **Sort.** The K colours are sorted by **luminance, dark → light**. Ties
-   break by hue, then by original index. Sorted output is how pixel artists
-   pick shades; frequency order is a v2.1 option.
+### 5.5 Palette transformation — VoidPixelatr's
 
-If the image contains fewer distinct clusters than K, the output has fewer
-than K colours and the panel says so (`24 colours — the image has little
-variety`).
+The transformation — saturation, brightness, contrast, hue, posterise and
+the presets — tunes an *extracted* palette for sprite work. There is nothing
+here to extract from and nothing to tune.
 
-#### 5.4.2 Where the image comes from
-- If the **image workspace is open**, the generator uses the currently framed
-  region — the same grid the converter will match against.
-- Otherwise, if a **reference is loaded**, it uses the reference's image in
-  full (retained in memory for the session, §8.6.4) — one click, no
-  re-picking.
-- Otherwise it opens the file picker.
-- The image is never uploaded — §2.3 applies without exception.
-
-#### 5.4.3 What happens to the palette
-
-The panel offers three targets:
-
-| Target | Effect |
-|---|---|
-| **Replace** the active palette | The active palette becomes the generated one. |
-| **Append** to the active palette | Adds the generated colours after the existing ones, if the total stays ≤ 64. |
-| **Save as a new palette** | Creates a named palette (`From <filename>`), leaving the active one alone. |
-
-A generated palette keeps **its own size** — 16, 32 or 64, whichever was
-asked for, and fewer if the image had less variety. The ladder (§5.6) is the
-size a *user-created* palette starts at; it is not a rule about padding.
-A palette that arrives from a file keeps exactly the colours the file had,
-too: importing a twelve-colour palette gives you twelve colours, not
-sixteen with four black squares added.
-
-Replacing or appending **re-indexes the canvas** by the rule in §5.2, so art
-is preserved by colour rather than by position.
-
-#### 5.4.4 Performance
-The input is capped at 256×256 = 65 536 pixels. Median cut is O(n log n);
-the refinement is 8 × K distance computations per pixel — about 16.8 M
-operations at K=32. **Budget: under 200 ms.** If it exceeds 300 ms on a given
-machine, the work must be chunked across animation frames with a busy state
-rather than freezing the tab.
-
-### 5.5 Palette transformation — tuning for sprites
-
-A palette extracted from a photograph is usually **too dull** for pixel art.
-Photographic colours sit in a compressed, desaturated range; sprite palettes
-want punch. The transformation step fixes that before anything is converted.
-
-The transformation is applied to a **staging copy** of the palette. `Apply`
-commits it; `Cancel` discards it. The artwork is untouched either way.
-
-**Every slider is live.** Moving one re-tunes the staging palette *and*
-re-renders the pixel preview immediately (§8.8.4) — you see the sprite change
-colour as you drag, not after you press Apply. The swatches in the sidebar
-preview the tuned palette at the same time, so the palette and the picture it
-produces are always visible together.
-
-#### 5.5.1 Controls
-
-| Control | Range | Default | Effect |
-|---|---|---|---|
-| Saturation | 0–200% | 100% | Scales S in HSL. |
-| Brightness | 0–200% | 100% | Scales L in HSL. |
-| Contrast | 0–200% | 100% | Pushes L away from 0.5. |
-| Hue shift | −180…+180° | 0° | Rotates H. |
-| Posterise | off, 2–8 levels | off | Quantises each RGB channel to N levels. |
-
-#### 5.5.2 Presets
-
-| Preset | Settings | Why |
-|---|---|---|
-| `Sprite pop` | Sat 135%, Bright 108%, Contrast 110% | The default look for game sprites — saturated, punchy, still readable. |
-| `Muted` | Sat 78%, Bright 100% | For backgrounds, UI icons, quiet scenes. |
-| `Deep` | Bright 85%, Contrast 125% | Darker, moodier, higher separation. |
-| `Pastel` | Sat 70%, Bright 115% | Soft, flat, cute. |
-| `Normalise` | — | Not a transform but a range operation: linearly remaps the palette's luminance range so its darkest colour goes to L=0 and its lightest to L=1, preserving the relative spacing. Fixes photos that are washed out or too dark. |
-
-#### 5.5.3 Behaviour and edge cases
-- Transforms are applied in HSL: hex → HSL → adjust → HSL → hex, each channel
-  clamped to 0–255 and normalised to lowercase hex.
-- **De-duplication after transformation.** A saturation boost can collapse two
-  colours into one, wasting a slot. After the transform, colours within a
-  small RGB distance (Δ < 6) of each other are merged, and the panel reports
-  the change: `32 colours → 29 (3 merged)`.
-- Transformations are **not** cumulative across sessions — the palette stores
-  its final colours, not the recipe.
+It is in VoidPixelatr, with the extraction that feeds it.
 
 ### 5.6 Decision
 - Palette index `-1` = **empty pixel** (transparent). It is not a swatch.
@@ -1118,7 +842,7 @@ produces are always visible together.
 - Palette switching matches on **exact hex first**, nearest colour second.
 - No alpha channel anywhere in the *art*. Transparency means "no pixel drawn",
   nothing else.
-- **The reference image is the one exception to "no alpha":** it is displayed
+- **The imported image is the one exception to "no alpha":** it is displayed
   with its own alpha and composited under or over the art. It is never
   composited *into* the art, and never exported.
 - The palette generator is **deterministic** and sorts its output **by
@@ -1131,92 +855,74 @@ produces are always visible together.
 ### 6.1 Data structures
 
 ```js
-width       // 16 | 32 | 64 | 128 | 256 | 512 — the canvas's X edge
-height      // 16 | 32 | 64 | 128 | 256 | 512 — the canvas's Y edge
+width       // 16 | 32 | 64 — the canvas's width. It is square: height === width.
+height      // 16 | 32 | 64 — the canvas's height
 grid        // Int8Array(width * height), row-major, grid[y * width + x]
 palette     // array of hex strings, 1..64 entries
 activeIndex // 0..palette.length-1, or -1 = eraser mode
-
-refBuffer   // ImageData | null — the reference image, at width x height
-refMode     // 'off' | 'under' | 'over'
-refOpacity  // 0..1
-refFit      // 'cover' | 'contain' | '1:1'
-
-source      // ImageBitmap | null — the session image, at most 2048×2048
-srcPan      // { x, y } — the source's offset in the workspace pane, px
-srcZoom     // screen px per source px, 0.05 … 32
-adjust      // { black, white, brightness, contrast, saturation, hue, grey }
+scale       // 1 | 2 | 4 | 8 | 16 | 32 | 64 — the art-pixel zoom
+symmetry    // 0 = off, 1 = mirror X, 2 = mirror Y, 3 = both
 ```
 
-- **The canvas is not square.** It has a width and a height, and the row
-  stride is the *width*. A 64 × 16 canvas is a perfectly ordinary canvas.
+- **The canvas is square.** It has a width and a height, and the row stride
+  is the *width*, but the two are always equal: the size dropdown offers
+  16, 32 and 64 and the canvas is always that many pixels a side (§1.2).
 - `grid[i] === -1` means empty.
-- `Int8Array` is used rather than a 2D array of numbers: 256×256 = 65 536
-  entries = **64 KB**, snapshots are cheap, and indices 0–63 fit alongside
+- `Int8Array` is used rather than a 2D array of numbers: 64×64 = 4096
+  entries = **4 KB**, snapshots are cheap, and indices 0–63 fit alongside
   the −1 sentinel.
 - `grid` is replaced wholesale on resize; pixels are remapped (§7.5).
-- `refBuffer` is an `ImageData` of exactly `width × height` — the reference
-  is always stored **at grid resolution**, one image pixel per art cell
-  (§8.6).
 
-### 6.2 Rendering — a layered buffer model, not 4096 `<div>`s
+### 6.2 Rendering — a buffer model, not 4096 `<div>`s
 
 v1 rendered every art pixel as a `<div>`. That is 65 536 nodes at 256×256, and
 it was the wrong call even at 64×64. v2 uses a **layered buffer model**:
 
 ```
 ┌─ artBuffer     (offscreen canvas, width x height, 1 art px = 1 buffer px)
-├─ previewBuffer (offscreen canvas, the live conversion, over the art)
-├─ refBuffer     (offscreen canvas, width x height, the reference image)
+├─ previewBuffer (offscreen canvas, the live preview, over the art)
 └─ display       (the <canvas> the user sees, size * scale, DPR-aware)
 ```
 
-That is **three content layers and one display surface** — the source layer
-(`refBuffer`), the pixel layer (`artBuffer`) and the live conversion
-(`previewBuffer`), composited onto the display (§1.3).
+That is **two content layers and one display surface** — the artwork
+(`artBuffer`) and the live preview (`previewBuffer`), composited onto the
+display.
 
 - **artBuffer** holds the artwork at native art resolution. Painting writes
-  1×1 rects into it. At 256×256 it is 65 536 px = 256 KB.
-- **previewBuffer** holds the **live conversion**, at the resolution of the
-  grid it was sampled from. It is a *layer of the same canvas*, not a second
-  canvas: the Image mode shows this canvas beside the photo, with the
-  conversion drawn over the artwork (§4.6). The reduced-quality tier samples
-  fewer cells, so the layer is smaller and the composite stretches it back
-  up — the draft reads as blocks until the full pass lands.
-- **refBuffer** holds the reference image at native art resolution, so it
-  aligns 1:1 with the grid (§8.6).
+  1×1 rects into it. At 64×64 it is 4096 px = 16 KB.
+- **previewBuffer** holds the **live preview**, at the resolution of the grid
+  it was sampled from. It is a *layer of the same canvas*, not a second
+  canvas. The reduced-quality tier samples fewer cells, so the layer is
+  smaller and the composite stretches it back up — the draft reads as blocks
+  until the full pass lands.
 - **display** is the visible `<canvas>`, sized `width * scale` × `height *
   scale` CSS px, with a backing store scaled by the device pixel ratio.
 
-A frame is composited in four steps:
+A frame is composited in three steps:
 
 ```js
 ctx.imageSmoothingEnabled = false
 ctx.clearRect(0, 0, w, h)
-if (refMode === 'under') ctx.globalAlpha = refOpacity, ctx.drawImage(refBuffer, 0, 0, w, h)
-ctx.drawImage(artBuffer, 0, 0, w, h)          // art is opaque, drawn on top
-ctx.drawImage(previewBuffer, 0, 0, w, h)       // the live conversion, over the art
-if (refMode === 'over')  ctx.globalAlpha = refOpacity, ctx.drawImage(refBuffer, 0, 0, w, h)
+ctx.drawImage(artBuffer, 0, 0, w, h)          // the artwork
+ctx.drawImage(previewBuffer, 0, 0, w, h)       // the live preview, over it
 drawGridLines()                                // always last
 ctx.globalAlpha = 1
 ```
 
-Three `drawImage` calls and a few hundred line strokes — **sub-millisecond at
-any size, including 256×256**. This is why the app can afford a reference
-layer, a live conversion and a large canvas without a dirty-rectangle
-system.
+Two `drawImage` calls and a few hundred line strokes — **sub-millisecond at
+any size, including 64×64**. This is why the app can afford a live preview
+and a large canvas without a dirty-rectangle system.
 
 - `imageSmoothingEnabled = false` everywhere, including in `drawImage`, so the
-  upscale is nearest-neighbour. The art is crisp, and the reference is
-  blocky in exactly the way the grid is — which is what makes it traceable.
+  upscale is nearest-neighbour and the art is crisp.
 - `devicePixelRatio` is honoured so the display is crisp on HiDPI screens.
   All drawing is done in CSS-pixel coordinates after
   `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`.
-- **Grid lines are always drawn last**, in every mode, so the grid stays
-  legible over both the art and the reference. They are drawn when the grid
-  toggle is on and `scale >= 8` (below 8× the lines would swamp the art).
+- **Grid lines are always drawn last**, so the grid stays legible over the
+  art. They are drawn when the grid toggle is on and `scale >= 8` (below 8×
+  the lines would swamp the art).
 - The display's backing store is capped at **4096 device pixels on each
-  edge**, so a 512-wide canvas at 64× cannot ask for a 32 768-pixel canvas.
+  edge**, so a 64-wide canvas at 64× cannot ask for a 32 768-pixel canvas.
 
 ### 6.3 What is redrawn when
 
@@ -1502,373 +1208,46 @@ nearest(rgb, palette) → index of the colour with the smallest
   the top-left**. Nearest-neighbour scaling is the default.
 - This is the "let it do the work" path: photo in, palette-correct sprite out.
 
-### 8.6 The reference underlay — image to grid (non-destructive)
+### 8.6 The reference underlay — gone
 
-This is the feature that turns a photo into a grid the user can paint on.
+The reference underlay, the source pane, the grid overlay, the source
+adjustments, the palette extraction and the conversion were **one project**
+with two ideas in it, and the two ideas did not belong together.
 
-**What it is.** The user loads an image. The image is resampled to exactly
-`size × size` — one image pixel per art cell — and displayed beneath (or
-over) the artwork, with the grid lines drawn on top. The user then traces it
-by hand with the tools they already have.
+They are now **VoidPixelatr**: a photo-to-pixel-art pipeline with its own
+folder (`~/Desktop/voidpixelatr/`), its own specification and its own
+tests. Everything from the session image through the four match methods
+lives there, and none of it lives here.
 
-**What it is not.** It does not touch `grid`. It is not exported, not
-undoable, and not part of any project file. It *is* persisted locally, in
-IndexedDB (§9.1), so the workspace comes back after a reload — but it never
-leaves the machine and it is never in an export. It is a lamp.
+What this app keeps from that half is only the thing it can still use:
 
-**One image, two views.** There is a single **session image** — the file the
-user loaded. It has two independent views:
-
-| View | Where | How it is shown |
-|---|---|---|
-| **Reference underlay** | On the canvas (§8.6) | Resampled to grid resolution, with a fit mode. |
-| **Image workspace** | In the workspace (§8.7) | At full working resolution, with pan, zoom and adjustments. |
-
-Loading an image anywhere — picker, drag-and-drop or paste — sets the session
-image, and both views become available. The user never loads the same photo
-twice. The `Clear` control in either view releases the image completely: both
-views go blank and the memory is freed.
-
-#### 8.6.1 Loading — three ways, all local
-
-| Route | How |
+| Kept | Why |
 |---|---|
-| File picker | `Reference` in the strip, or `Load…` in the workspace → hidden `<input type="file" accept="image/*">` |
-| Drag & drop | Drop an image file onto the canvas or the source pane → `dragover` highlights the target, `drop` loads it |
-| Paste | `Ctrl/Cmd+V` anywhere → the clipboard's image item is loaded |
+| **The project-file format** (§8.2) | A conversion made in VoidPixelatr opens here unchanged. |
+| **The palette ladder** (§5) | The same sixteen colours, nested the same way. |
+| **The PNG snap import** (§8.5) | An existing sprite, brought in and snapped to the palette. |
 
-All three routes set the **session image** (§8.6), so the workspace and the
-underlay always show the same photo.
+What is gone: the reference strip, the `Load photo` button, the source
+pane, the grid overlay, the adjustments, the extraction panel, the
+conversion panel, the `Image` mode toggle, and every keyboard shortcut that
+drove them (§11).
 
-The privacy guarantee is **§2.3**, and it applies here without exception:
-decoded via `FileReader`/`createImageBitmap`, drawn to a canvas, read back as
-`ImageData`, and the original is dropped from the JS references except for the
-session-scoped `Blob` noted in §8.6.4. `URL.createObjectURL` is deliberately
-not used — the CSP's `img-src` has no `blob:` (§2.2).
+#### 8.6.1 Drop and paste — the behaviour that stayed
 
-#### 8.6.2 Resampling to the grid
+The whole page used to take a dropped photo. That behaviour stayed when the
+photo half went, and was **repurposed**: a dropped file is now **artwork**.
 
-The reference is drawn into a scratch canvas of exactly `size × size` with
-`imageSmoothingEnabled = false`, using the chosen **fit** mode:
-
-| Fit | Behaviour | Use when |
-|---|---|---|
-| **Cover** (default) | Scale so the image fills the grid; centre-crop the overflow | Portraits and photos — you want the subject filling the frame |
-| **Contain** | Scale so the whole image fits; letterbox the remainder | Screenshots, wide images, anything where cropping would lose content |
-| **1:1** | Draw at native size, anchored top-left | Pixel art already at the right resolution |
-
-- Nearest-neighbour, always. No smoothing, ever. A smooth resample would
-  invent colours that are not in the grid's world.
-- The fit modes operate on the **working copy** (§8.7.1), so `1:1` means one
-  *working-copy* pixel per cell.
-- After resampling, `refBuffer` is `getImageData`'d once and stored as
-  `ImageData`. The display then draws it with `drawImage` at the current zoom.
-
-#### 8.6.3 Display modes
-
-| Mode | Compositing order | Result |
-|---|---|---|
-| **Off** | art → grid | No reference. |
-| **Under** (default) | reference (opacity) → art → grid | The photo shows through the unpainted cells; painted cells cover it. This is the tracing mode. |
-| **Over** | art → reference (opacity) → grid | The photo tints everything, including painted cells. Useful for checking alignment against fine detail. |
-
-- Opacity applies to the reference in both modes, 0–100%, default **50%**.
-- **Grid lines are always drawn last**, in every mode, so the grid stays
-  crisp over the photo. This is the whole point — the user needs to see
-  where the cells are.
-- The reference is scaled with the canvas, so zooming in shows the reference's
-  own blocky pixels. That is deliberate: at 16× the user sees exactly the
-  image data that each cell represents, which is what makes tracing accurate
-  rather than guesswork.
-
-#### 8.6.4 Interaction rules
-
-- Loading a reference **never changes** the artwork, the palette, the size,
-  the undo stack, or the active colour.
-- The original `Blob` is kept — in memory for the session, and in IndexedDB
-  across reloads (§9.1) — so a resize or fit change can resample properly
-  from source rather than from an already-degraded buffer. It is never
-  uploaded.
-- `Clear reference` (F25) **releases the session image entirely** — the
-  underlay goes blank, the strip disappears, the workspace's source goes
-  blank, and the photo is deleted from IndexedDB. It does not touch the art.
-  The workspace has its own `Clear` button that does exactly the same thing.
-- Dropping a **second** image replaces the first.
-- Dropping a non-image file is ignored silently.
-- A pasted **text** clipboard entry is ignored (and not prevented from doing
-  whatever the browser would normally do with it).
-
-#### 8.6.5 The two paths side by side
-
-| | Underlay (§8.6) | Snap import (§8.5) |
-|---|---|---|
-| Effect on `grid` | None | Replaces it entirely |
-| Palette-aware | No | Yes |
-| Exported | Never | Yes |
-| Persisted | Yes, locally (§9.1) | Yes (it is the art) |
-| Undoable | N/A | Yes |
-
-A user tracing a photo: load it as a reference, zoom to 16×, paint over it,
-then export. A user wanting a quick result: import it and let it snap to the
-palette, then clean up by hand.
-
-### 8.7 The source — framing and adjusting
-
-There is **no crop**. The source image is framed by **moving and scaling it
-under a fixed grid**, and the grid converts whatever lies beneath it. This
-covers every case a crop would have: the whole image, a zoomed face, or an
-arbitrary corner (§1.2).
-
-#### 8.7.1 The source image
-- The workspace works on the **session image** (§8.6) — the photo the user
-  loaded, shared with the canvas underlay. There is only ever one loaded
-  image at a time.
-- It is decoded once into an `ImageBitmap`, downscaled to at most
-  **2048×2048** (aspect preserved). That working copy is what is displayed,
-  adjusted and sampled.
-- The 2048 cap bounds two things at once: memory (a decoded bitmap is 4
-  bytes per pixel, so 2048² is 16 MB) and the cost of the area average in
-  §8.7.5.
-- The original `Blob` is retained — in memory for the session, and in
-  IndexedDB across reloads (§9.1) so the workspace comes back exactly as it
-  was left. It is never uploaded.
-- Decoding uses `createImageBitmap`; there is no `<img>` element in the data
-  path.
-
-#### 8.7.2 The grid overlay
-- The overlay is **the canvas's grid**, at the canvas's own size: `width ×
-  height` cells. It is not a square and it has no size of its own.
-- It has **its own position and its own size on screen**. The cell size is
-  `cellPx`, from 1 to 64 pixels, and the overlay's top-left corner sits at
-  `(gridX, gridY)` in the pane. Neither is slaved to the photo's zoom or
-  pan.
-- **The cell size has a floor of one pixel, not four.** This is the fix
-  for "the grid runs off the bottom of the screen and I cannot see it":
-  with a floor of four, a 256-cell grid was always 1024 pixels across and
-  a 512-cell grid was 2048, so the grid could never be seen whole. At one
-  pixel per cell the whole grid fits at every canvas size.
-- **`cellPx` is computed when the grid size changes, and then held
-  steady.** It is *not* recomputed on every pane resize. This matters: the
-  output is "the image content beneath the overlay", and the overlay's size
-  in screen pixels decides how much of the image that is. If `cellPx`
-  tracked the window, enlarging the browser would silently change what the
-  conversion samples — the same picture, converted differently, for no
-  visible reason. A user who resizes the window and presses `Apply to
-  canvas` again must get the same sprite.
-- **A canvas resize re-fits the grid.** The grid is the canvas's size, so
-  when the canvas changes the grid has to be re-fitted and the photo
-  re-centred on it. Otherwise the grid keeps the cell size it had, grows
-  off the bottom of the pane, and half of what is converted is out of
-  sight.
-- The overlay is drawn over the image with 1 px grid lines. The area outside
-  the overlay is dimmed with a flat `rgba(13,13,15,0.45)` wash, so the active
-  region is unambiguous.
-- **The output is the image content beneath the overlay.** Output cell
-  `(col, row)` corresponds to overlay cell `(col, row)`. The sampler's
-  geometry carries the overlay's origin and cell size, and the photo's zoom
-  and pan, as four separate numbers (§8.8.3).
-
-#### 8.7.3 Moving and zooming
-
-| Action | Binding |
+| The file is | What happens |
 |---|---|
-| Pan | Left-drag in the source pane — the workspace is a viewer, not a painting surface. Middle-drag also pans. |
-| Zoom | Mouse wheel over the source pane, the `−` / `+` buttons, or the `+` / `-` keys while the workspace is open. |
-| Pan (keyboard) | Arrow keys: 8 px per press, 32 px with Shift. |
-| `Fit` | Zoom so the whole image is visible, centred. |
-| `Pixel` | One source pixel per grid cell, with the pan snapped to whole source pixels. |
+| A PNG | It is imported through the snap path (§8.5) — scaled or cropped to 16, 32 or 64 and snapped to the palette. |
+| A JSON file | It is imported as a project (§8.3). |
+| Anything else | It is ignored, silently. |
 
-And the grid has its own set, in the same header:
+The drop handler is on the document, not on two boxes: the old per-target
+handlers had to go because the drop event bubbles, and leaving them would
+have imported the file twice.
 
-| Action | Binding |
-|---|---|
-| Grid zoom | The `GRID` slider, or `Shift`+wheel over the pane. The size of one cell, 1 to 64 pixels. |
-| Grid pan | `Shift`+drag in the source pane. |
-| `Fit` (grid) | Scale the cell so the **whole grid** fits the pane, and centre it. |
-
-- Zoom is **screen pixels per source pixel**, from 0.05× to 32×.
-- **Wheel zoom is anchored at the pointer** — the source pixel under the
-  cursor stays under the cursor. Without this, zooming is unusable for
-  framing.
-- `Fit` and `Pixel` are presets: they set zoom and pan together.
-- Panning is clamped so the image cannot be dragged entirely off-screen; at
-  least 10% of the pane stays covered.
-- The zoom and pan state is persisted with the preferences (§9.1), so the
-  framing comes back with the photo on the next reload.
-- **The grid's pan is clamped** so that some of the grid always stays on
-  screen. A grid that can be dragged entirely out of view is a grid you
-  have lost. The photo's pan is clamped the same way, at 10% of the pane.
-
-#### 8.7.4 Source adjustments
-
-These act on the **photo's pixels, before sampling**, so they change what
-each grid cell averages to. They are not the same thing as the palette tuning
-in §5.5, and the two compound: adjustments here rescue the *structure*,
-tuning there fixes the *colours*.
-
-| Control | Range | Default | Effect |
-|---|---|---|---|
-| Black point | 0–40% | 0% | Luminance below this is clipped to black. |
-| White point | 60–100% | 100% | Luminance above this is clipped to white. |
-| Brightness | 0–200% | 100% | Scales luminance. |
-| Contrast | 0–200% | 100% | Pushes luminance away from mid-grey. |
-| Saturation | 0–200% | 100% | Scales chroma. |
-| Hue shift | −180…+180° | 0° | Rotates hue. |
-| Greyscale | on/off | off | Drops chroma entirely. |
-| `Auto levels` | button | — | Sets the black and white points from the image's own luminance histogram. |
-
-- **Order of application:** black point → white point → brightness → contrast
-  → saturation → hue shift → greyscale. The order is fixed so the result is
-  reproducible.
-- **`Auto levels`** computes the luminance histogram of the working copy and
-  sets the black point to the 0.5% percentile and the white point to the
-  99.5% percentile. It is a one-shot button that writes the two sliders; it
-  is not a live control.
-- Adjustments are computed in **sRGB**, using HSL for the saturation and hue
-  operations.
-- **Why they run before sampling, not after:** averaging a cell mixes the
-  colours inside it, so a flat, low-contrast photo averages to mud. Boosting
-  the source's contrast first restores separation *inside* each cell, and no
-  amount of palette tuning can recover structure that averaging has already
-  destroyed. This is the whole reason the two adjustment sets exist
-  separately.
-- The source pane draws the **adjusted** image, so the preview shows exactly
-  what will be converted.
-- Adjustments are recomputed on the working copy whenever a control changes:
-  one pass over ≤ 4.2 M pixels, debounced at 80 ms while a slider is dragged.
-- **The pixel preview updates live too.** Moving a contrast or saturation
-  slider re-samples the grid and re-matches it to the palette, so the sprite
-  on the canvas changes as you drag (§8.8.4). That is the whole point
-  of the control: you are adjusting the photo *because* of what it does to
-  the pixel art.
-
-#### 8.7.5 Sampling the grid
-
-The grid's output is derived from the source through the inverse of the
-current pan/zoom transform. For overlay cell `(col, row)`:
-
-```
-screenX = gridOriginX + col * cellPx
-screenY = gridOriginY + row * cellPx
-imageX  = (screenX - panX) / zoom
-imageY  = (screenY - panY) / zoom
-```
-
-- `Nearest` samples the single source pixel at the **centre** of the cell's
-  image-space rect.
-- `Average` accumulates every source pixel the cell's image-space rect
-  covers, weighted by alpha and by the fractional coverage of edge pixels,
-  and divides by the covered pixel count. This is a true **area average**,
-  not a point sample — which is what makes a downscaled photograph read
-  correctly instead of aliasing into noise.
-- The average pass touches at most the working copy's 2048×2048 pixels in
-  total, because every source pixel falls in exactly one cell. It is one
-  pass: roughly 4.2 M reads, ~30–60 ms.
-- A cell that lies entirely off the image is **empty** (`-1`). A cell that
-  only partially overlaps averages the pixels it does cover — what you see in
-  that cell is what it becomes.
-- A cell whose covered pixels average **less than half opacity** is empty.
-  The rule is stated as "fully transparent" in v1; half-opaque is the
-  practical version of it, and it is what stops a nearly-transparent
-  background from becoming a smear of grey.
-
-### 8.8 Conversion — image to pixel art
-
-The conversion is the heart of the pipeline. It has three stages, each of
-which is visible in the preview.
-
-#### 8.8.1 Stage 1 — sample the grid
-
-The framed region — whatever is currently under the grid overlay — is sampled
-into exactly `size × size` cells, one per grid cell. Two methods:
-
-| Method | Behaviour | Use when |
-|---|---|---|
-| **Average** (default) | Area average: each cell's colour is the **mean of the pixels it covers**, alpha-weighted | Photographs. This is the "colour average pixel" behaviour. |
-| **Nearest** | One sample per cell, at the cell's centre | The source is already pixel art — averaging would blur it. |
-
-- The result is a `size × size` grid of RGB values — the **grid overlay** the
-  user sees drawn over the source image, in the canvas beside it.
-- The sampling geometry is §8.7.5.
-- Alpha weighting: a pixel's contribution is scaled by its alpha, so
-  semi-transparent edges blend correctly. A cell whose pixels are all fully
-  transparent becomes an **empty** cell.
-- The sampled grid is the **single source of truth** for the rest of the
-  pipeline: the palette generator reads it (§5.4.1) and the matcher reads it
-  (§8.8.2). One sample, two consumers — so the palette can never describe a
-  different image than the one being converted.
-
-#### 8.8.2 Stage 2 — match to the palette
-
-Each cell's colour is matched to the palette. Four methods:
-
-| Method | Behaviour | Character |
-|---|---|---|
-| **Flat** (default) | Nearest palette colour per cell (§8.4) | Crisp, hard-edged, classic. Banded but clean. |
-| **Bayer 8×8** | An ordered-dither threshold offset is added to each cell's colour before matching | Retro, ordered, deterministic. Preserves gradients as texture. |
-| **Floyd–Steinberg** | Error diffusion: the error from each cell is pushed to its unprocessed neighbours | The smoothest tonal range. Slightly noisy, the standard "photo → pixel art" look. |
-| **Clustered** | k-means over the cell averages (K = palette size), then each cluster maps to the nearest palette colour | Few coherent colours, flat and hand-made-looking. |
-
-- All four operate on the `size × size` colour grid from stage 1.
-- **Bayer** uses the standard 8×8 threshold matrix, scaled by a strength of
-  ~1/8 of the palette's average colour spacing, so the dither is visible but
-  not noisy.
-- **Floyd–Steinberg** runs serpentine (alternating scan direction) to avoid
-  the directional artefacts of a naive left-to-right pass.
-- **Clustered** reuses the k-means refinement from the palette generator
-  (§5.4.1) over the cell averages.
-
-#### 8.8.3 Stage 3 — write to the canvas
-
-`Apply to canvas` replaces `grid` with the result:
-
-- Every cell becomes the palette index of its matched colour, or `-1` if the
-  cell was empty (fully transparent in the source).
-- The canvas size is set to the conversion's grid size.
-- The pre-conversion grid is pushed onto the **undo stack** (§7.4), so a bad
-  conversion is one `Ctrl+Z` away.
-- The reference underlay is left untouched — the user may want to keep
-  comparing against the photo.
-- The active palette is the one that was used for the conversion, so the
-  canvas and the palette stay consistent.
-
-#### 8.8.4 Preview and performance — everything is live
-
-The preview is the instrument panel, and it is **live**: every control that
-can change the result re-renders it immediately, while the control is being
-moved. Nothing waits for a button.
-
-| What changed | What re-renders |
-|---|---|
-| Source adjustments (§8.7.4) | the adjusted source pane, the sampled grid, the matched result |
-| Palette tuning (§5.5) | the sidebar swatches, the matched result |
-| Palette extraction (§5.4) | the sidebar swatches, the matched result |
-| Pan / zoom (§8.7.3) | the sampled grid, the matched result |
-| Grid size, sample method, match method | everything |
-
-**The source pane** shows the **source with the grid overlay** beside the
-**converted result**, both at the target grid resolution, scaled up
-nearest-neighbour. The source shown is the **adjusted** image, so the preview
-is honest about what will be converted.
-
-**Two quality tiers.** A full-resolution conversion is 65 536 cells × 64
-comparisons — fine once, far too slow for a slider drag. So:
-
-- **While a control is moving:** the preview recomputes in a reduced tier —
-  the source is sampled from a 512×512 working copy and the grid is previewed
-  at up to 64×64. That is ~15–30 ms, smooth at 60 fps, and shows the *shape*
-  of the change immediately.
-- **When the control settles** (pointerup, or 120 ms after the last input):
-  the full-resolution preview is computed and drawn over the reduced one.
-
-The reduction is a preview detail only. `Apply to canvas` always converts
-at full resolution, from the full working copy, with the current palette.
-
-- Panning and zooming move the image under a **fixed** grid, so a pan never
-  redraws the overlay — only the sampled grid changes.
-- Cost at full resolution: stage 1 is one pass over the working copy
-  (≤ 4.2 M reads); stage 2 is at most 65 536 × 64 distance computations.
-  Budget **under 250 ms** for a 256×256 conversion with a 64-colour palette.
+A pasted image takes the same path as a dropped one.
 
 ### 8.9 Copy PNG
 - `canvas.toBlob` → `ClipboardItem` → `navigator.clipboard.write`.
@@ -1908,24 +1287,21 @@ at full resolution, from the full working copy, with the current palette.
 
 ### 9.1 What is stored, and where
 
-**Two stores, both local-only.**
+**One store, and it is local.**
 
 | Store | Key | Contents |
 |---|---|---|
 | `localStorage` | `voidpixlr:canvas:v2` | `{ width, height, palette, grid }` — the current work. |
 | `localStorage` | `voidpixlr:palettes:v2` | All user palettes (array of `{ name, colours }`). |
-| `localStorage` | `voidpixlr:prefs:v2` | `{ scale, fitZoom, gridVisible, symmetry, activePalette, adjust, srcPan, srcZoom, sizeLocked }`. |
-| IndexedDB | `voidpixlr` → `source` | The photo's original `Blob`, plus its file name and type. |
+| `localStorage` | `voidpixlr:prefs:v2` | `{ scale, fitZoom, gridVisible, symmetry, activePalette, sizeLocked }`. |
 
 - **Everything stays on the user's machine.** There is no server component, no
   sync, no account, and no endpoint to send any of it to. Nothing is ever
   transmitted (§2.3).
 - No cookies, no Cache API, no service worker.
-- **IndexedDB holds the photo**, not `localStorage`: a photo is megabytes and
-  `localStorage` is a synchronous ~5 MB string store, so writing an image
-  there would block the main thread and risk the quota. IndexedDB is async,
-  binary-native, and has orders of magnitude more room. The split is
-  technical, not ideological — both stores are equally local.
+- **There is no IndexedDB here.** It held the photo, and the photo went to
+  VoidPixelatr (§1.2). What is left is small enough for `localStorage`:
+  the artwork, the palettes and the preferences.
 - The grid is serialised as a **compact string, one character per cell**:
   `-1` → `.`, and palette index `i` → `String.fromCharCode(0x100 + i)`.
   Codepoints 0x100–0x13F are printable and survive JSON round-tripping
@@ -2075,21 +1451,11 @@ The aesthetic is unchanged from v1. It is the product.
 | `+` / `-` | Zoom in / out |
 | `0` | Fit to view |
 | `[` / `]` | Previous / next palette colour |
-| `I` | Load a reference image (opens the file picker) |
-| `M` | Cycle reference mode: off → under → over |
-| `,` / `.` | Reference opacity down / up |
-| `F` | Cycle reference fit: cover → contain → 1:1 |
-| `W` | Toggle the Image workspace |
-| `←` `→` `↑` `↓` | Pan the source image (workspace only) |
-| `L` | Auto levels on the source (workspace only) |
-| `X` | Cycle the conversion method (flat / Bayer / Floyd / clustered) |
-| `Esc` | Cancel an open inline panel, close the workspace, or exit eraser mode |
-| `Ctrl/Cmd + V` | Paste an image from the clipboard as a reference |
+| `Esc` | Cancel an open inline panel, or leave eraser mode |
+| `Ctrl/Cmd + V` | Paste an image from the clipboard |
 
-- Shortcuts are ignored while a text input (hex field, file input) has focus.
-- `+` / `-` zoom the canvas normally, and the **source image** when the
-  workspace is open. Arrow keys pan the source in the workspace and do
-  nothing on the canvas.
+- Shortcuts are ignored while a text input (the hex field, a file input, the
+  palette name) has focus.
 - `1`–`5` are **not** bound to canvas sizes: resizing now goes through the
   Resize flow (§7.5) and a stray keystroke must never touch the canvas size.
 - `Ctrl/Cmd + S` is **not** intercepted — the browser's own save dialog is
@@ -2098,12 +1464,10 @@ The aesthetic is unchanged from v1. It is the product.
   a text paste is left to the browser.
 
 ### Decision
-- The shortcut set grows from three to nineteen actions; the v1 set of three
-  is a subset.
+- The shortcut set is the drawing tool's. `I`, `M`, `,`, `.`, `F`, `L`, `X`
+  and `W` are gone with the features they drove (§3).
 - The browser's own shortcuts are never hijacked, with the single exception of
   undo/redo, which a drawing app is expected to own.
-- Reference shortcuts are `I` / `M` / `,` / `.` / `F` — mnemonic and
-  non-conflicting.
 
 ---
 
@@ -2112,8 +1476,8 @@ The aesthetic is unchanged from v1. It is the product.
 ### 12.1 Stack
 - **Vanilla HTML + CSS + JavaScript.** No frameworks, no build step, no
   bundler, no TypeScript, no JSX, no npm, no dependencies.
-- Storage: `localStorage` for artwork and palettes, **IndexedDB** for the
-  photo (§9.1). Both are built-in browser APIs — no library, no dependency.
+- Storage: `localStorage` for the artwork, the palettes and the
+  preferences (§9.1). A built-in browser API — no library, no dependency.
 - ES2020+ syntax is fine (`const`, arrow functions, template literals,
   optional chaining, `Array.from`, `Int8Array`, `ImageData`).
 - Plain `<script>` tags in dependency order — **not** ES modules. Modules
@@ -2130,31 +1494,30 @@ voidpixlr/
 │   ├── app.js            ← bootstrap, wiring, keyboard, drag/drop, paste
 │   ├── canvas.js         ← buffers, compositing, pointer handling, zoom
 │   ├── palette.js        ← palette model, colour editing, remap, transform
-│   ├── quantise.js       ← pure algorithms: median cut, k-means, area
-│   │                        average sampling, HSL adjustment, Bayer,
-│   │                        Floyd–Steinberg, nearest
-│   ├── reference.js      ← the underlay: load, resample, fit, mode, opacity
-│   ├── workspace.js      ← the Image workspace: framing, adjustments,
-│   │                        palette panel, conversion panel, previews
+│   ├── quantise.js       ← pure algorithms: colour maths, nearest-colour
+│   │                        matching, HSL adjustment, the grid serialiser
 │   ├── history.js        ← undo/redo stacks
 │   ├── io.js             ← export/import PNG & JSON
-│   └── storage.js        ← localStorage persistence
+│   ├── storage.js        ← localStorage persistence
+│   └── menu.js           ← the menu sections and the colour pop-over
 ├── serve.sh              ← local preview (python3 http.server)
 ├── deploy.sh             ← rsync + vhost install + nginx reload + smoke test
 ├── ops/
 │   └── nginx/
 │       └── voidpixlr.conf ← the vhost
 ├── tests/
-│   └── voidpixlr.test.mjs ← dependency-free logic tests (node)
+│   ├── voidpixlr.test.mjs ← dependency-free logic tests (node)
+│   └── browser/          ← the Firefox suites, driven over Marionette
 └── project.md            ← this file
 ```
 
+There is **no `workspace.js`** and **no `reference.js`**. The pipeline's
+source pane and the photo layer went with the photo half (§1.2).
+
 - `quantise.js` is deliberately **pure** — no DOM, no globals beyond its
-  namespace. It is the whole algorithm layer: median cut, Lloyd refinement,
-  area-average sampling, HSL adjustment, nearest-neighbour matching, Bayer
-  thresholding, Floyd–Steinberg diffusion, k-means over cell averages. Every
-  one of those is directly unit-testable in node, which is how the house test
-  style works.
+  namespace. It is the algorithm layer: HSL adjustment, nearest-neighbour
+  matching, and the grid serialiser. Every one of those is directly
+  unit-testable in node, which is how the house test style works.
 - Scripts are loaded as plain `<script src>` in the order above; each file
   exposes one global namespace object (`VP`, `VP.canvas`, `VP.palette`, …).
   No build step means no module bundler, and one namespace means no globals
@@ -2166,20 +1529,12 @@ voidpixlr/
 - Tests are dependency-free `node` scripts in the style of
   `TheVoidCo/website/tests/site.test.mjs`, covering the pure logic:
   nearest-colour matching, JSON validation, import of a v1 file, the grid
-  serialiser at 64 colours, the undo stack, the palette transform
-  (including HSL round-trips and de-duplication), the source adjustments
-  (including the HSL round-trip and the auto-levels percentiles), the median
-  cut (determinism and colour count), the area-average sampler, the Bayer
-  matrix, and Floyd–Steinberg error bounds.
+  serialiser, the undo stack, and the house rules read out of the real
+  source files.
 
 ### 12.3 Browser target
 Latest stable Chrome, Firefox, Safari, Edge. `Int8Array`, `PointerEvent`,
-`canvas.toBlob`, `ClipboardItem`, `createImageBitmap` and `structuredClone` are
-all safe.
-
-- `createImageBitmap` is preferred for decoding a dropped file (fast, no DOM
-  element needed); an `<img>` + `data:` URL path is the fallback for older
-  Safari.
+`canvas.toBlob` and `ClipboardItem` are all safe.
 
 ### Decision
 - **Multi-file, multi-directory.** Forced by the CSP (§2.2) and consistent
@@ -2328,219 +1683,110 @@ the umbrella keeps no copy of it. What it has is a **pointer**.
 ## 14. Behaviour Walkthroughs
 
 ### 14.1 First load
-1. App opens. `size = 16`, active palette = **Void Palette**, `activeIndex = 0`
-   (white), grid all `-1`, zoom = 16×, grid lines visible, symmetry off, no
-   reference.
-2. The white swatch shows the active outline; the eraser tile is present but
-   inactive.
-3. The canvas renders 16×16 empty cells in `var(--pixel-empty)` with 1px grid
-   lines.
-4. If an autosave exists, it is restored instead of step 1's blank state, and
-   the canvas comes back at its saved size, palette and zoom.
+The menu is on the left with two sections; the canvas is a blank 16×16
+square with the grid on.
 
 ### 14.2 Draw a stroke
-1. User clicks swatch 3 (red). Swatch 0 deactivates, swatch 3 activates.
-2. User presses on the pixel at row 2, col 4 and drags to row 5, col 9.
-3. Bresenham interpolation fills every cell along the path — no gaps, no
-   skipped rows.
-4. The undo stack takes one snapshot (taken at pointerdown, committed at
-   pointerup), not one per cell.
-5. The user keeps dragging past the canvas edge. The pointer is captured, so
-   the stroke continues along the edge row.
+Pick a colour from the pop-over, drag on the canvas. The stroke is
+continuous at any speed — Bresenham interpolation fills the cells a fast
+drag skips over. Right-drag erases.
 
-### 14.3 Erase
-1. The user presses `E`. The eraser tile activates; the active colour
-   indicator leaves the palette grid.
-2. Left-drag erases. Right-drag erases too, without switching mode.
-3. `E` again, or `Esc`, returns to the previously active colour.
+### 14.3 Mirror it
+`S` cycles symmetry. Every paint operation is mirrored: X, Y or both. The
+centre cell of an odd-sized canvas is painted once, not four times.
 
-### 14.4 Change the palette
-1. The user clicks `+ Add colour`, picks `#ff8800`, and drags the swatch to
-   position 4.
-2. The canvas re-indexes: pixels referencing the old index 4 now show the new
-   orange; the colour that shifted down to index 5 is preserved.
-3. The palette is saved to `localStorage` and survives a reload.
+### 14.4 Undo it
+`Ctrl+Z`. The stack is 50 deep and stroke-granular, so one press takes back
+a whole stroke and not one cell of it.
 
-### 14.5 The full pipeline — photo to sprite
-1. The user presses `W` to open the Image workspace, then drags `photo.jpg`
-   onto it. The file is decoded locally; **no request is made for it**.
-2. They press `Fit`. The whole photo appears under the 32×32 grid overlay.
-3. They scroll to zoom in on the cat's face. The zoom is anchored at the
-   pointer, so the face stays under the cursor as it grows, and they drag to
-   centre it under the grid.
-4. The photo is flat and washed out, so they press `L` (auto levels) and push
-   **Contrast** to 130% and **Saturation** to 140%. The source pane updates
-   immediately — that is the *adjusted* image, and it is what will be
-   converted.
-5. In the PALETTE block they pick `32` and press `Extract`. The sidebar's
-   swatches fill with 32 colours, sorted dark → light, and the panel reports
-   `32 colours`.
-6. They hit the `Sprite pop` preset. The swatches brighten and saturate live;
-   the panel reports `32 colours → 29 (3 merged)`.
-7. They press `Apply` and choose `Save as a new palette`. It becomes
-   `From photo.jpg` and becomes the active palette.
-8. In the CONVERT block they choose `Average` and `Floyd–Steinberg`. The
-   preview updates: the left pane shows the adjusted source with the 32×32
-   grid overlay, the right pane shows the dithered pixel art.
-9. They press `Apply to canvas`. The canvas is now 32×32, filled with the
-   converted art, and the palette in the sidebar is the one that produced it.
-10. They press `Ctrl+Z`. The canvas returns to empty. They press
-    `Ctrl+Shift+Z` and it comes back.
-11. They export a PNG at 16×, transparent. The source photo is not in it.
+### 14.5 Change the palette
+Open **Palette** and pick another built-in, or build your own at 16, 32 or
+64. Switching remaps the existing art by exact hex first and nearest colour
+second, so nothing is lost.
 
-**The same photo, three ways, no crop in sight.** The grid size and the
-framing are independent (§1.2), so:
+### 14.6 Change the size
+The size dropdown offers 16, 32 and 64. A resize that would crop the art
+asks first, inline. The art is kept centre-anchored: cells outside the new
+shape are cropped, new cells are empty.
 
-- **The whole image** — `Fit`, grid 64. The entire photo becomes a 64×64
-  sprite: a thumbnail, a poster, a background.
-- **A face** — zoom in on the face, grid 32. A 32×32 face sprite, sampled
-  from the pixels actually on the face, at full detail per pixel.
-- **A corner** — pan to the corner, grid 16. A 16×16 detail tile.
+### 14.7 Import something
+`Import`, then **Import JSON…** for a project file or **Import PNG…** for an
+image. A PNG that is not already 16, 32 or 64 pixels square asks whether to
+scale it or crop it. **A file dropped anywhere on the page** does the same
+thing — a PNG is snapped to the palette and a JSON file is a project.
 
-Nothing was cropped, and nothing was destroyed between them — only the
-framing and the grid size changed.
+### 14.8 Export
+`Export PNG` opens the inline panel: a scale (1× / 4× / 8× / 16× / 32×,
+refused when it would exceed 4096 pixels a side) and a background
+(transparent or solid). `Export JSON` writes the project file.
+`Copy PNG` writes to the clipboard, or downloads the file when the page is
+not on a secure context — it never dead-ends.
 
-### 14.6 Load a reference image and trace it by hand
-1. The user resizes the canvas to 128×128 (art is empty, so the size button
-   applies immediately).
-2. They drag `photo.png` from their desktop onto the canvas. The canvas border
-   highlights, then the image is decoded locally, resampled to 128×128 with
-   **Cover** fit, and displayed.
-3. The reference strip appears: `photo.png`, mode `Under`, opacity 50%, fit
-   `Cover`, and the `never uploaded` label.
-4. The user presses `M` twice to reach `Over` mode, checks alignment against
-   fine detail, then presses `M` once more to return to `Under`.
-5. They zoom to 16× with `+` and paint over the reference with the active
-   colour. Painted cells are opaque and cover the photo beneath them; the
-   grid lines stay visible on top of both.
-6. They export a PNG. The reference is **not** in the file — only the painted
-   art, on a transparent background.
-7. They reload the page. The art is restored from autosave **and the photo
-   comes back too**, because it is stored locally (§9.1) — the workspace
-   returns exactly as they left it.
-
-### 14.7 Change size with art on the canvas
-1. The user clicks `256`. The Resize panel opens — it does **not** wipe
-   anything.
-2. The user confirms. The old 64×64 art is centred in the 256×256 canvas;
-   the new border area is empty.
-3. If a reference was loaded, it is resampled from the original image to
-   256×256 with the same fit mode and stays aligned to the grid.
-4. The pre-resize grid is on the undo stack. `Ctrl+Z` restores the 64×64
-   canvas exactly.
-
-### 14.8 Import a v1 JSON file
-1. The user drops in a `voidpixelr.json` produced by v1 (no `format` key).
-2. The import panel treats it as v1, adopts its 12-colour palette, and loads
-   the pixels.
-3. The canvas is unchanged if validation fails — the panel shows `Invalid file`
-   and the current artwork is untouched.
-
-### 14.9 Import a PNG (snap)
-1. The user picks a 64×64 PNG.
-2. Every pixel is snapped to the nearest colour in the active palette.
-3. Fully transparent source pixels become empty pixels.
-
-### 14.10 Export PNG
-1. The user clicks `Export PNG`. The scale row appears: `1× 4× 8× 16× 32×` and
-   a background toggle.
-2. On a 256×256 canvas, `32×` is shown as `too large` and is disabled.
-3. `16×` and transparent → a 4096×4096 PNG, alpha 0 where nothing was drawn.
-
-### 14.11 Copy PNG on the LAN
-1. The user clicks `Copy PNG` at `http://192.168.100.<n>/`.
-2. `navigator.clipboard` is undefined — the button is labelled
-   `Copy PNG (downloads)` and the PNG downloads instead.
-3. The label flashes `Downloaded` for 1.5 s. Nothing failed.
-
-### 14.12 Forget everything
-1. The user clicks `Forget everything`. The label becomes `Sure?` for 2 s.
-2. A second click removes all three `localStorage` keys and reloads the app.
-3. The app opens exactly as in §14.1.
+### 14.9 Forget everything
+One control in the bottom bar. It asks first, the second click wipes the
+`localStorage` keys, and the page reloads into a clean first-run state.
 
 ---
 
 ## 15. Out of Scope
 
-### 15.1 Not in v2
-- Animation, frames, GIF/APNG export, onion skin.
-- A layer *system*: more than the two fixed layers of §1.3, no layer
-  ordering, no per-layer opacity, no blend modes, no layer panel.
-- Transparency as a colour (transparent means "no pixel", nothing else).
-- Selection, rectangular marquee, copy/paste of regions.
-- Fill bucket, eyedropper, line/rect/ellipse shape tools.
-- Shape smoothing, anti-aliasing, sub-pixel placement.
-- Palette history (undo does not cover palette changes).
-- PNG export at arbitrary scale, PNG export with a custom background colour
-  beyond the app background or transparent.
-- Community features: daily challenge, leaderboard, share links, gallery.
-- Accounts, cloud sync, cross-device anything.
-- Mobile / touch-optimised layout.
-- PNG import of images whose size needs cropping (scale-to-fit only, plus an
-  explicit top-left crop choice).
-- Multi-window / multi-tab coordination.
-- Dark/light theme (there is only one theme).
-- **Reference image:** no split-screen view (reference beside the canvas
-  rather than under it); no free repositioning of the *underlay* beyond its
-  three fit modes — the workspace view pans and zooms freely (§8.7.3); no
-  rotation; no multiple reference images at once; no reference stored in the
-  JSON export; no reference history.
-- **Image pipeline:** no cropping of any kind — framing is pan-and-zoom
-  (§8.7); no rotation or flipping of the source; no grid offset/phase
-  alignment (the grid always starts at the overlay's top-left corner); no
-  curve editing beyond the black and white points; no alpha-matte extraction;
-  no background removal; no AI upscaling or generative fill; no batch
-  processing of multiple images; no palette extraction from a video; no
-  colour-profile management (everything is assumed sRGB); no ICC handling.
+### 15.1 Not in v2.1
 
-### 15.2 Roadmap candidates (v2.1 → v3)
-- **Perceptual colour distance** for nearest-colour matching (Lab / redmean),
-  applied to the matcher, the generator and the converter together.
-- **Palette history** — undo across palette edits.
-- **Symmetry as a live preview** (a faint guide line down the middle).
-- **Line and shape tools** with shift-constrain.
-- **Fill bucket** with contiguous / global modes.
-- **Eyedropper** (`Alt`+click already erases; `Alt`+click could pick instead).
-- **Split view** — the reference in a second pane beside the canvas, with
-  independent scroll.
-- **Grid offset / phase alignment** — nudge the grid against the photo so the
-  subject lands on cell boundaries.
-- **Palette extraction from a video**, or from a folder of images.
-- **Sorting the generated palette by frequency** instead of luminance.
-- **A "palette of the day"** — but that requires a server, so it would also
-  open the door to the community features v2 deliberately excludes. Treat as a
-  fork in the road, not a feature.
+- **The photo pipeline.** No reference image, no source pane, no grid
+  overlay, no source adjustments, no palette extraction, no conversion.
+  Those are **VoidPixelatr**'s, and they were given their own project
+  rather than a hidden mode (§1.2).
+- **Rectangular canvases and sizes above 64.** The output follows the
+  photograph in VoidPixelatr; here it is square and small.
+- **A layer system.** One canvas, one grid.
+- **Animation.** No frames, no timeline, no onion skin.
+- **Selection, copy/paste, fill bucket, shape tools.**
+- **Accounts, cloud sync, sharing, collaboration, comments, a community.**
+- **Mobile-first design.** The layout is a desktop tool's layout.
+- **Any server.** No upload, no API, no telemetry, no third-party asset.
+- **A domain or a tunnel.** LAN only.
+
+### 15.2 Roadmap candidates (v2.2 → v3)
+
+- A **fill bucket** with a tolerance.
+- **Shape tools** — a line, a rectangle, an ellipse.
+- **Copy and paste of cells.**
+- **Onion skin**, for animators.
+- **A wider ladder** of canvas sizes beyond 64, if the square-only rule ever
+  needs revisiting.
 
 ---
 
 ## 16. Acceptance Criteria
 
-v2 is done when **all** of these are true.
+v2.1 is done when **all** of these are true.
 
 **Core**
 1. [ ] The app runs from `index.html` with no console errors and **zero network
        requests** after load.
-2. [ ] All five sizes (16, 32, 64, 128, 256) render, draw and export correctly.
+2. [ ] All three sizes (16, 32, 64) render, draw and export correctly, and
+       the canvas is square at every one of them.
 3. [ ] The Void Palette (16), Void Expanded (32) and Void Full (64) are built
-       in and selectable; switching between them leaves existing art untouched.
+       in and selectable; switching between them leaves existing art
+       untouched.
 4. [ ] A custom palette of 16, 32 or 64 colours can be created, renamed,
        reordered, edited, saved, deleted, and survives a reload.
 5. [ ] Switching palettes remaps existing art by exact hex, then nearest
        colour, without losing it.
 6. [ ] Left-drag paints a continuous stroke with no gaps at any speed.
 7. [ ] Right-drag and the eraser tile both erase.
-8. [ ] Symmetry off / X / Y / both behaves correctly, including the centre cell
-       of an odd-sized canvas.
-9. [ ] Undo and redo restore exact grid state, at the documented depth for
-       that size (50, or 20 at 256×256), stroke-granular.
-10. [ ] Grid toggle shows/hides grid lines; lines are absent below 8× zoom and
-        always drawn on top of the reference.
-11. [ ] Zoom 4/8/16/32 and Fit work, including HiDPI (crisp, not blurry).
-12. [ ] Resize preserves art centre-anchored and is undoable.
-13. [ ] New clears the canvas with the inline 2-second confirm.
+8. [ ] Symmetry off / X / Y / both behaves correctly, including the centre
+       cell of an odd-sized canvas.
+9. [ ] Undo and redo restore exact grid state, stroke-granular, at the
+       documented depth.
+10. [ ] Grid toggle shows/hides grid lines; lines are absent below 8× zoom.
+11. [ ] Zoom 1/2/4/8/16/32/64 and Fit work, including HiDPI (crisp, not
+        blurry).
+12. [ ] Resize preserves art centre-anchored and asks first when it would
+        crop.
+13. [ ] New clears the canvas with the inline two-step confirm.
 14. [ ] Export PNG honours the chosen scale and background; alpha is 0 where
-        nothing was drawn; neither the reference nor the source photo is
-        included.
+        nothing was drawn.
 15. [ ] Export JSON matches §8.2 exactly.
 16. [ ] Import JSON loads a v2 file losslessly, loads a v1 file correctly, and
         rejects a malformed file without touching the canvas.
@@ -2550,101 +1796,25 @@ v2 is done when **all** of these are true.
         a download otherwise — it never dead-ends.
 19. [ ] Autosave restores canvas, palettes and preferences after a reload.
 20. [ ] Forget everything clears all local state and returns to first-run.
-21. [ ] Every keyboard shortcut in §11 works, and none fires while a text field
-        has focus.
+21. [ ] Every keyboard shortcut in §11 works, and none fires while a text
+        field has focus.
+22. [ ] **There is no photo in this project.** No reference image, no source
+        pane, no grid overlay, no adjustments, no extraction, no conversion,
+        no `Load photo` button and no mode switch.
 
 **The no-upload guarantee**
-22. [ ] **Devtools → Network shows zero requests during the entire image
-        pipeline** — load, frame, adjust, extract, tune, convert, export. Not
-        one request for the image, not one `POST`.
-23. [ ] The nginx access log for a full pipeline run contains only the app's
-        own static files.
-24. [ ] No `fetch`, `XMLHttpRequest`, `sendBeacon`, WebSocket or form
-        submission exists anywhere in the source.
-25. [ ] No `blob:` URL is created or drawn; images are decoded via
-        `FileReader` / `createImageBitmap` into `ImageData`.
-26. [ ] The photo is written only to IndexedDB, never to `localStorage`, and
-        never anywhere off the device.
-
-**Reference images**
-27. [ ] An image can be loaded three ways: file picker, drag & drop onto the
-        canvas, and paste from the clipboard.
-28. [ ] The reference is resampled to exactly `size × size`, nearest-neighbour,
-        with no smoothing, and aligns 1:1 with the grid.
-29. [ ] All three fit modes work: Cover, Contain, 1:1.
-30. [ ] All three modes work: Off, Under, Over. Grid lines are drawn on top in
-        every mode.
-31. [ ] Opacity 0–100% affects the reference in both Under and Over modes.
-32. [ ] Loading, changing or clearing a reference never modifies the artwork,
-        the palette, the undo stack, or the active colour.
-33. [ ] The reference is resampled correctly after a canvas resize and stays
-        aligned with the grid.
-34. [ ] The reference is **not** in the PNG export and **not** in the JSON
-        export. It *is* in the local IndexedDB store, and nowhere else.
-35. [ ] The `never uploaded` label is visible whenever reference controls are
-        shown.
-36. [ ] Dropping a non-image file is ignored silently; dropping a second
-        image replaces the first.
-
-**The image pipeline**
-37. [ ] The source can be panned by dragging and zoomed by the wheel, with
-        the zoom anchored at the pointer.
-38. [ ] `Fit` shows the whole image; `Pixel` shows one source pixel per grid
-        cell with the pan snapped to source pixels.
-39. [ ] The grid overlay is screen-anchored: it stays put while the image
-        moves, and the output is exactly the image beneath it.
-40. [ ] The same photo yields a whole-image sprite, a face sprite and a
-        corner tile by changing only the framing and the grid size.
-41. [ ] Palette extraction is **deterministic**: the same image, framing,
-        adjustments and count always produce byte-identical palettes.
-42. [ ] Extraction returns exactly the requested count (16 / 32 / 64), or
-        reports how many it could find, when the image has less variety.
-43. [ ] Extraction and conversion read the **same sampled grid**, so the
-        palette can never describe a different image than the one converted.
-44. [ ] Extraction of a 256×256 source completes in under 200 ms.
-45. [ ] Every source adjustment (black point, white point, brightness,
-        contrast, saturation, hue, greyscale) changes the sampled result in
-        the documented direction.
-46. [ ] `Auto levels` sets the black and white points from the image's own
-        histogram.
-47. [ ] Adjustments are applied in the documented order, and **before**
-        sampling — a high-contrast source averages into cells with more
-        separation than the same source left unadjusted.
-48. [ ] The source pane shows the adjusted image, not the original.
-49. [ ] The palette transform sliders (saturation, brightness, contrast, hue,
-        posterise) change the swatches live and correctly.
-50. [ ] Each preset produces its documented result.
-51. [ ] `Normalise` stretches the palette's luminance range to full.
-52. [ ] A transform that collapses two colours reports the merge count.
-53. [ ] The converter's `Average` mode produces the **mean colour per cell**,
-        and `Nearest` produces one sample per cell.
-54. [ ] All four match methods produce a correct result: Flat, Bayer 8×8,
-        Floyd–Steinberg (serpentine), Clustered.
-55. [ ] The preview shows the source with the target grid overlay beside the
-        converted result, and updates **live** — while a slider is being
-        dragged, not only after it settles.
-56. [ ] `Apply to canvas` replaces the art, keeps the canvas size, and is
-        undoable.
-57. [ ] The converted canvas uses the palette that produced it.
-
-**House compliance**
-58. [ ] `script-src 'self'` — the app contains no inline `<script>` and no
-        inline event handlers; it runs clean under the shared CSP.
-59. [ ] No cookies, no analytics, no third-party requests, no web fonts.
-60. [ ] `localStorage` holds only the three documented keys, and IndexedDB
-        holds only the photo. No other storage API is used.
-61. [x] Deployed via `./deploy.sh` onto its own container; `nginx -t` passes
-        before any reload.
-62. [x] The registry row is updated and `sync-registry.py` has been re-run, so
-        the landing page lists VoidPixlr.
+23. [ ] **Devtools → Network shows zero requests** during the whole session.
+        Not one `POST`, and no request for any imported file.
+24. [ ] There is no `fetch`, `XMLHttpRequest`, `sendBeacon`, `blob:` URL or
+        form submission anywhere in the source.
 
 **Quality**
-63. [ ] `node tests/voidpixlr.test.mjs` passes with no dependencies.
-64. [ ] The visual style matches §10 — no gradients, no rounded corners, no
+25. [ ] `node tests/voidpixlr.test.mjs` passes with no dependencies.
+26. [ ] The visual style matches §10 — no gradients, no rounded corners, no
         animations, no shadows except the canvas glow.
-65. [ ] `projects/voidpixlr/AGENTS.md` exists and is accurate.
-66. [ ] A 256×256 canvas remains responsive while dragging (no visible lag),
-        and a full redraw stays under ~5 ms.
+27. [ ] `AGENTS.md` exists and is accurate.
+28. [ ] A 64×64 canvas remains responsive while dragging, and a full redraw
+        stays under ~5 ms.
 
 ### 16.1 How the criteria were verified
 
@@ -3296,17 +2466,16 @@ reason.
 
 ---
 
-## 19. The Decisions (one resolved, twelve taken)
+## 19. The Decisions (one resolved, thirteen taken)
 
 These are the decisions that were made, and then built. They are recorded
 here so that a later reader knows they were choices rather than accidents —
 and so that changing one is a deliberate act.
 
-1. **Local storage — RESOLVED (§9.4).** Approved: the user's photos, values
-   and palettes live on their own machine — `localStorage` for artwork and
-   palettes, IndexedDB for the photo. What is never permitted is sending any
+1. **Local storage — RESOLVED (§9.4).** Approved: the user's palettes and
+   artwork live on their own machine. What is never permitted is sending any
    of it back to the server, and there is no endpoint to send it to. The
-   no-upload guarantee is unchanged and is still acceptance criterion §16.22.
+   no-upload guarantee is unchanged and is still acceptance criterion §16.23.
 2. **Explicit eraser replacing "re-click erases" (§7.1).** This is the one
    place v2 loses a bit of v1's magic. It can be restored, but only by
    reintroducing the destructive-drag problem.
@@ -3315,66 +2484,67 @@ and so that changing one is a deliberate act.
 4. **The palette ladder of 16 / 32 / 64.** The three built-ins are nested so
    switching between them never alters art. The alternative is to treat them
    as unrelated palettes, which makes the switch lossy.
-5. **The generator sorts by luminance, not by frequency** (§5.4.1). Luminance
-   order is how people pick shades; frequency order is a v2.1 option.
-6. **The default conversion is `Average` + `Flat`** (§8.8). Predictable and
-   what a first-time user expects. Dithering is one click away.
-7. **The framing is pan-and-zoom, not cropping** (§8.7). The crop idea was
-   dropped because framing subsumes it: the whole image, a zoomed face and an
-   arbitrary corner are all just a pan/zoom state. If you would rather have a
-   traditional crop rectangle, say so — it is a different and more fiddly
-   interaction.
-8. **Source adjustments run before sampling, not after** (§8.7.4). This is
-   the difference between a washed-out photo that pixelates to mud and one
-   that pixelates to a sprite: adjusting after averaging cannot recover
-   structure that averaging has already destroyed.
-9. **PNG snap import (§8.5) and the grid converter (§8.8) are separate
-   features.** The converter is the richer path (framing, adjustments,
-   dither, cluster); the snap import is the quick one. Building both is not
-   much more than building one, since they share the resampler and the
-   matcher.
-10. **The reference is never persisted and never exported (§8.6, §9.1).**
-    The alternative is to embed it in the JSON as a data URL, which would
-    make project files large and would put someone's photo in a file they
-    share. The recommendation is firmly no.
-11. **The reference is drawn with no smoothing (§8.6.2).** A smooth resample
-    would look nicer at high zoom but would invent colours that do not exist
-    in the grid. Nearest-neighbour keeps the photo honest.
-12. **The workspace is a mode, not a modal** (§4.6), and it never touches the
-    canvas until `Apply to canvas` is pressed.
+5. **The split is along the idea, not the code.** VoidPixlr draws;
+   VoidPixelatr converts. One project with two ideas was "a bit nono", so
+   the ideas were separated even though the algorithms were shared.
+6. **The canvas is square, 16 / 32 / 64 only.** The rectangles and the
+   larger sizes existed for the photo half, and the photo half has its own
+   project now. Hand-made art is square and small.
+7. **The project-file format is shared.** `format` is still `voidpixlr`,
+   because it names the *format*, not the app. A conversion made in
+   VoidPixelatr opens here.
+8. **The stored state is not shared.** `voidpixlr:*` and `voidpixelatr:*` are
+   separate namespaces, because the two apps share an origin during local
+   development.
+9. **A dropped file is artwork.** The drop-anywhere behaviour stayed when
+   the photo half went, and a PNG now snaps to the palette instead of
+   becoming a reference.
 
 ---
 
 ## 20. Summary
 
-VoidPixlr v2 is:
+VoidPixlr v2.1 is:
 
-- **A real pixel-art tool** — 16 to 512 on either edge, palettes of 16/32/64,
-  drag-paint,
-  symmetry, multi-level undo, zoom, resize, PNG + JSON in and out.
-- **An image-to-pixel-art pipeline** — load a photo, frame it under a grid by
-  panning and zooming, adjust its levels, contrast and saturation, pull a
-  16/32/64 palette out of it, tune that palette for sprites, and convert it
-  to pixel art with cell averaging and dithering. **Entirely in the browser.**
-- **A tracing tool** — the same photo, non-destructively, under the grid you
-  paint on.
+- **A real pixel-art tool** — a square canvas at 16, 32 or 64 pixels a side,
+  palettes of 16/32/64, drag-paint, symmetry, multi-level undo, zoom, resize,
+  PNG + JSON in and out.
+- **Not a photo tool.** There is no photograph in it. Converting a
+  photograph is **VoidPixelatr**'s job, and it has its own project.
 - **Still one folder, no build step, no dependencies** — served as-is by
   nginx.
-- **Still zero network** — nothing is transmitted, ever. The photo never
-  leaves the device.
+- **Still zero network** — nothing is transmitted, ever.
 - **Still the Void aesthetic** — no gradients, no shadows, no rounded
   corners, no animations, no menus.
-- **Local-first** — the user's photo, palettes and artwork all live on their
-  own machine, with one button to forget all of it.
-- **Two layers, honestly** — the source image and the pixel image. No layer
-  system, and no pretending otherwise.
-- **Everything live** — every slider re-renders the picture as you drag it.
+- **Local-first** — the user's palettes and artwork live on their own
+  machine, with one button to forget all of it.
+- **One layer, honestly** — the artwork, and nothing else.
 
 A pixel canvas that earns its keep. A tool. A Void.
 
 ---
 
 ## 21. Build Status
+
+**Built and tested. Not yet deployed.** The source in this folder is the
+v2.1 r15 build.
+
+- Nine JavaScript modules, one stylesheet, one HTML file. No build step, no
+  dependencies, no framework.
+- 98 node checks, 66 end-to-end browser checks, 20 hostile-input checks —
+  all passing, all dependency-free. The browser suites also pass against the
+  real shared CSP.
+- **The container, the vhost, the deploy script and the GitHub remote are
+  this project's alone.** VoidPixelatr has none of them: it is a local
+  repository with no remote, no container and no registry row.
+- The vhost in the repository carries `192.0.2.0` — the RFC 5737
+  documentation range — as a placeholder. `deploy.sh` substitutes the real
+  address when it installs it and refuses to run without one, so a
+  checked-in config can never name a machine that is already serving
+  something else.
+
+The specification and the build are in step.
+
 
 **Built, tested and live.** The source in this folder is the v2.0 r14 build,
 serving at **http://192.168.100.100/**.

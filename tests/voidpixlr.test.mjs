@@ -9,8 +9,7 @@
    Three layers:
 
      1. the pure algorithm layer (js/quantise.js) — colour maths, matching,
-        the palette generator, the sampler, the four match methods, the
-        adjustments and the geometry;
+        the geometry and the project file format;
      2. the models (palette, history, storage) — loaded against a minimal
         shim;
      3. the house rules — the no-upload guarantee, the CSP constraints and
@@ -20,7 +19,7 @@
    index.html, so the markup and the code cannot drift apart silently.
    ========================================================================== */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -29,6 +28,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 
 const read = (...parts) => readFileSync(join(ROOT, ...parts), "utf8");
+const exists = (...parts) => existsSync(join(ROOT, ...parts));
 
 /* --- the runner ------------------------------------------------------------ */
 
@@ -113,7 +113,6 @@ loadScript("quantise.js", sandbox);
 loadScript("palette.js", sandbox);
 loadScript("history.js", sandbox);
 loadScript("storage.js", sandbox);
-loadScript("reference.js", sandbox);
 
 const Q = sandbox.VP.quantise;
 const P = sandbox.VP.palette;
@@ -494,514 +493,6 @@ check("a project with the wrong version is rejected", () => {
    The palette generator
    ========================================================================== */
 
-console.log("\nthe palette generator");
-
-function gradientPixels(count) {
-  const pixels = new Float32Array(count * 3);
-  for (let i = 0; i < count; i += 1) {
-    pixels[i * 3] = (i * 255) / Math.max(1, count - 1);
-    pixels[i * 3 + 1] = 128;
-    pixels[i * 3 + 2] = 255 - (i * 255) / Math.max(1, count - 1);
-  }
-  return pixels;
-}
-
-check("it is deterministic", () => {
-  const pixels = gradientPixels(512);
-  const a = Q.generatePalette(pixels, 16);
-  const b = Q.generatePalette(pixels, 16);
-  assertDeep(a, b, "two runs differ");
-});
-
-check("it returns exactly the requested count when there is variety", () => {
-  const colours = Q.generatePalette(gradientPixels(1024), 16);
-  assertEqual(colours.length, 16, "colour count");
-  const colours32 = Q.generatePalette(gradientPixels(1024), 32);
-  assertEqual(colours32.length, 32, "colour count at 32");
-});
-
-check("it returns fewer colours when the image has little variety", () => {
-  const flat = new Float32Array(256 * 3);
-  for (let i = 0; i < 256; i += 1) {
-    flat[i * 3] = 100;
-    flat[i * 3 + 1] = 100;
-    flat[i * 3 + 2] = 100;
-  }
-  const colours = Q.generatePalette(flat, 32);
-  assert(colours.length < 32, `expected fewer than 32, got ${colours.length}`);
-  assert(colours.length >= 1, "expected at least one colour");
-});
-
-check("the output is sorted by luminance, dark to light", () => {
-  const colours = Q.generatePalette(gradientPixels(1024), 16);
-  let previous = -1;
-  for (const hex of colours) {
-    const rgb = Q.hexToRgb(hex);
-    const lum = Q.luminance(rgb[0], rgb[1], rgb[2]);
-    assert(lum >= previous, `not sorted: ${hex} (${lum}) after ${previous}`);
-    previous = lum;
-  }
-});
-
-check("median cut splits the widest channel", () => {
-  /* Four pixels: black, red, cyan, near-white. */
-  const pixels = new Float32Array([
-    0, 0, 0,
-    255, 0, 0,
-    0, 255, 255,
-    250, 250, 250,
-  ]);
-  const boxes = Q.medianCut(pixels, pixels.length / 3, 2);
-  assertEqual(boxes.length, 2, "box count");
-  assert(boxes.some((box) => box[0] < 64), "no dark box");
-  assert(boxes.some((box) => box[0] > 192), "no light box");
-});
-
-check("Lloyd refinement pulls the centroids onto their clusters", () => {
-  /* Four pixels: two black, two white. */
-  const pixels = new Float32Array([
-    0, 0, 0,
-    0, 0, 0,
-    250, 250, 250,
-    250, 250, 250,
-  ]);
-  const start = [[125, 125, 125]];
-  const refined = Q.lloydRefine(pixels, start, 8);
-  assertEqual(refined.length, 1, "cluster count");
-  assertClose(refined[0][0], 125, 1, "the centroid stays between the clusters");
-});
-
-/* ==========================================================================
-   The palette transformer
-   ========================================================================== */
-
-console.log("\nthe palette transformer");
-
-check("an identity transform changes nothing", () => {
-  const result = Q.transformPalette(VOID_16, Q.defaultTransform());
-  assertDeep(result.colours, VOID_16, "colours changed");
-  assertEqual(result.merged, 0, "merge count");
-});
-
-check("zero saturation produces greys", () => {
-  const result = Q.transformPalette(["#ff4f4f", "#4fff4f"], {
-    saturation: 0,
-    brightness: 100,
-    contrast: 100,
-    hue: 0,
-    posterise: 0,
-  });
-  for (const hex of result.colours) {
-    const rgb = Q.hexToRgb(hex);
-    assertEqual(rgb[0], rgb[1], `red and green differ in ${hex}`);
-    assertEqual(rgb[1], rgb[2], `green and blue differ in ${hex}`);
-  }
-});
-
-check("double brightness is brighter", () => {
-  const before = Q.hexToRgb("#808080");
-  const result = Q.transformPalette(["#808080"], {
-    saturation: 100,
-    brightness: 200,
-    contrast: 100,
-    hue: 0,
-    posterise: 0,
-  });
-  const after = Q.hexToRgb(result.colours[0]);
-  assert(after[0] > before[0], `not brighter: ${before[0]} -> ${after[0]}`);
-});
-
-check("contrast pushes the channels away from mid-grey", () => {
-  const dark = Q.transformPalette(["#404040"], {
-    saturation: 100,
-    brightness: 100,
-    contrast: 200,
-    hue: 0,
-    posterise: 0,
-  });
-  const light = Q.transformPalette(["#c0c0c0"], {
-    saturation: 100,
-    brightness: 100,
-    contrast: 200,
-    hue: 0,
-    posterise: 0,
-  });
-  assert(
-    Q.hexToRgb(dark.colours[0])[0] < 0x40,
-    "the dark colour did not get darker"
-  );
-  assert(
-    Q.hexToRgb(light.colours[0])[0] > 0xc0,
-    "the light colour did not get lighter"
-  );
-});
-
-check("a hue shift rotates the colour", () => {
-  const base = Q.hexToRgb("#ff0000");
-  const shifted = Q.transformPalette(["#ff0000"], {
-    saturation: 100,
-    brightness: 100,
-    contrast: 100,
-    hue: 120,
-    posterise: 0,
-  });
-  const rgb = Q.hexToRgb(shifted.colours[0]);
-  const baseHue = Q.rgbToHsl(base[0], base[1], base[2])[0];
-  const hue = Q.rgbToHsl(rgb[0], rgb[1], rgb[2])[0];
-  assertClose(hue, (baseHue + 120) % 360, 3, "hue");
-});
-
-check("posterise quantises the channels", () => {
-  const result = Q.transformPalette(["#7f7f7f"], {
-    saturation: 100,
-    brightness: 100,
-    contrast: 100,
-    hue: 0,
-    posterise: 2,
-  });
-  const rgb = Q.hexToRgb(result.colours[0]);
-  assert(rgb[0] === 0 || rgb[0] === 255, `not posterised: ${rgb[0]}`);
-});
-
-check("a collapsed palette reports the merge count", () => {
-  const result = Q.transformPalette(
-    ["#ff0000", "#fe0000", "#00ff00"],
-    { saturation: 100, brightness: 100, contrast: 100, hue: 0, posterise: 0 }
-  );
-  assertEqual(result.colours.length, 2, "merged length");
-  assertEqual(result.merged, 1, "merge count");
-  assertEqual(result.before, 3, "original count");
-});
-
-check("normalise stretches the lightness range across the full span", () => {
-  const colours = Q.normaliseLuminance(["#404040", "#606060", "#808080"]);
-  const first = Q.hexToRgb(colours[0]);
-  const last = Q.hexToRgb(colours[2]);
-  assertEqual(first[0], 0, "the darkest became black");
-  assertEqual(last[0], 255, "the lightest became white");
-});
-
-/* ==========================================================================
-   The sampler
-   ========================================================================== */
-
-console.log("\nthe sampler");
-
-/* The geometry of the grid overlay, in screen pixels: where it starts, how
-   big a cell is on screen, and how the source is scaled and moved under it.
-   `cellPx / zoom` is how many source pixels a cell covers. */
-function geometryFor(cells, imageSize) {
-  return {
-    originX: 0,
-    originY: 0,
-    cellPx: imageSize / cells,
-    zoom: 1,
-    panX: 0,
-    panY: 0,
-  };
-}
-
-check("the area average is the mean of the covered pixels", () => {
-  const image = makeImage(16, 16, (x) => (x < 8 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
-  const sample = Q.sampleGrid(image, 2, 2, geometryFor(2, 16), "average");
-  assertEqual(sample.width, 2, "width");
-  assertEqual(sample.height, 2, "height");
-  assertClose(sample.cells[0], 0, 0.5, "the first cell is black");
-  assertClose(sample.cells[3], 255, 0.5, "the second cell is white");
-});
-
-check("the average of a mixed cell is the mean of its two halves", () => {
-  const image = makeImage(16, 16, (x) => (x < 8 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
-  const sample = Q.sampleGrid(image, 1, 1, geometryFor(1, 16), "average");
-  assertClose(sample.cells[0], 127.5, 1, "the mean");
-});
-
-check("nearest takes one sample at the cell centre", () => {
-  const image = makeImage(16, 16, (x) => (x < 8 ? [10, 20, 30, 255] : [200, 210, 220, 255]));
-  const sample = Q.sampleGrid(image, 2, 2, geometryFor(2, 16), "nearest");
-  assertClose(sample.cells[0], 10, 0.5, "the first cell");
-  assertClose(sample.cells[3], 200, 0.5, "the second cell");
-});
-
-check("a cell that lies off the image is empty", () => {
-  const image = makeImage(4, 4, () => [255, 255, 255, 255]);
-  const geometry = { ...geometryFor(2, 16), panX: 100 };
-  const sample = Q.sampleGrid(image, 2, 2, geometry, "average");
-  assertEqual(sample.alpha[0], 0, "alpha");
-  assertEqual(sample.alpha[3], 0, "alpha");
-});
-
-check("a transparent pixel contributes nothing to the average", () => {
-  const image = makeImage(2, 2, (x) =>
-    x === 0 ? [255, 255, 255, 255] : [0, 0, 0, 0]
-  );
-  const sample = Q.sampleGrid(image, 1, 1, geometryFor(1, 2), "average");
-  assertClose(sample.cells[0], 255, 1, "the opaque pixel won");
-});
-
-check("a fully transparent cell is empty", () => {
-  const image = makeImage(4, 4, () => [10, 10, 10, 0]);
-  const sample = Q.sampleGrid(image, 1, 1, geometryFor(1, 4), "average");
-  assertEqual(sample.alpha[0], 0, "alpha");
-});
-
-check("the sampled pixels feed the generator", () => {
-  const image = makeImage(16, 16, (x, y) => [(x * 16) % 256, (y * 16) % 256, 128, 255]);
-  const sample = Q.sampleGrid(image, 4, 4, geometryFor(4, 16), "average");
-  const pixels = Q.sampleToPixels(sample);
-  assertEqual(pixels.length, 4 * 4 * 3, "pixel count");
-});
-
-check("a rectangular grid samples every cell of every row", () => {
-  /* Four columns, two rows: the row stride is the width, not the height. */
-  const image = makeImage(16, 8, (x, y) => [x * 16, y * 32, 0, 255]);
-  const geometry = {
-    originX: 0,
-    originY: 0,
-    cellPx: 4,
-    cellPxY: 4,
-    zoom: 1,
-    panX: 0,
-    panY: 0,
-  };
-  const sample = Q.sampleGrid(image, 4, 2, geometry, "average");
-  assertEqual(sample.width, 4, "width");
-  assertEqual(sample.height, 2, "height");
-  assertEqual(sample.cells.length, 4 * 2 * 3, "the cell count");
-  /* The second row is the one that proves the stride: its green channel is
-     the second half of the image, not the second column. */
-  assertClose(sample.cells[(4 * 0 + 0) * 3 + 1], 48, 2, "the first row");
-  assertClose(sample.cells[(4 * 1 + 0) * 3 + 1], 176, 2, "the second row");
-  assertClose(sample.cells[(4 * 0 + 3) * 3], 216, 2, "the first row, last column");
-});
-
-/* ==========================================================================
-   The four match methods
-   ========================================================================== */
-
-console.log("\nthe match methods");
-
-function gradientSample(size) {
-  const cells = new Float32Array(size * size * 3);
-  const alpha = new Float32Array(size * size).fill(1);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const i = y * size + x;
-      cells[i * 3] = (x / (size - 1)) * 255;
-      cells[i * 3 + 1] = (y / (size - 1)) * 255;
-      cells[i * 3 + 2] = 128;
-    }
-  }
-  return { cells, alpha, width: size, height: size };
-}
-
-check("flat matches each cell to the nearest colour", () => {
-  const sample = gradientSample(8);
-  const palette = Q.buildPaletteRgb(["#000000", "#ffffff"]);
-  const result = Q.matchFlat(sample, palette);
-  assertEqual(result.length, 64, "result length");
-  for (const index of result) {
-    assert(index === 0 || index === 1, `bad index ${index}`);
-  }
-  assertEqual(result[0], 0, "the top-left corner is black");
-  assertEqual(result[63], 1, "the bottom-right corner is white");
-});
-
-check("an empty cell stays empty in every method", () => {
-  const sample = gradientSample(4);
-  sample.alpha[0] = 0;
-  const palette = Q.buildPaletteRgb(["#000000", "#ffffff"]);
-  for (const method of ["flat", "bayer", "floyd", "clustered"]) {
-    const result = Q.match(sample, palette, method);
-    assertEqual(result[0], -1, `${method} painted an empty cell`);
-  }
-});
-
-check("bayer dithers a gradient into texture", () => {
-  const sample = gradientSample(16);
-  const palette = Q.buildPaletteRgb(["#000000", "#ffffff"]);
-  const flat = Q.matchFlat(sample, palette);
-  const bayer = Q.matchBayer(sample, palette);
-  let differences = 0;
-  for (let i = 0; i < flat.length; i += 1) {
-    if (flat[i] !== bayer[i]) differences += 1;
-  }
-  assert(differences > 0, "the dither made no difference at all");
-});
-
-check("the Bayer matrix is the standard 8x8", () => {
-  assertEqual(Q.BAYER_8.length, 64, "matrix length");
-  assertEqual(Q.BAYER_8[0], 0, "the first threshold");
-  /* The standard matrix is a permutation of 0..63 — every threshold appears
-     exactly once. */
-  const sorted = [...Q.BAYER_8].sort((a, b) => a - b);
-  for (let i = 0; i < 64; i += 1) assertEqual(sorted[i], i, `value ${i}`);
-  assertEqual(Math.max(...Q.BAYER_8), 63, "the largest threshold");
-});
-
-check("Floyd-Steinberg stays inside the palette", () => {
-  const sample = gradientSample(16);
-  const palette = Q.buildPaletteRgb(VOID_16);
-  const result = Q.matchFloyd(sample, palette);
-  for (const index of result) {
-    assert(index >= 0 && index < 16, `bad index ${index}`);
-  }
-});
-
-check("Floyd-Steinberg does not drift outside the source range", () => {
-  const sample = gradientSample(16);
-  const palette = Q.buildPaletteRgb(["#000000", "#808080", "#ffffff"]);
-  const result = Q.matchFloyd(sample, palette);
-  for (const index of result) {
-    assert(index >= 0 && index < 3, `bad index ${index}`);
-  }
-});
-
-check("clustered uses fewer colours than flat on a gradient", () => {
-  const sample = gradientSample(16);
-  const palette = Q.buildPaletteRgb(VOID_16);
-  const flat = Q.matchFlat(sample, palette);
-  const clustered = Q.matchClustered(sample, palette);
-  const distinct = (result) => new Set(Array.from(result).filter((v) => v >= 0)).size;
-  assert(
-    distinct(clustered) <= distinct(flat),
-    `clustered used ${distinct(clustered)}, flat used ${distinct(flat)}`
-  );
-});
-
-check("match dispatches to the right method", () => {
-  const sample = gradientSample(8);
-  const palette = Q.buildPaletteRgb(VOID_16);
-  assertDeep(
-    Array.from(Q.match(sample, palette, "flat")),
-    Array.from(Q.matchFlat(sample, palette)),
-    "flat"
-  );
-  assertDeep(
-    Array.from(Q.match(sample, palette, "bayer")),
-    Array.from(Q.matchBayer(sample, palette)),
-    "bayer"
-  );
-});
-
-/* ==========================================================================
-   The source adjustments
-   ========================================================================== */
-
-console.log("\nthe source adjustments");
-
-check("the identity adjustment changes nothing", () => {
-  const image = makeImage(4, 4, (x, y) => [(x * 60) % 256, (y * 60) % 256, 90, 255]);
-  const out = Q.applyAdjustments(image, Q.defaultAdjust());
-  assertDeep(Array.from(out.data), Array.from(image.data), "pixels changed");
-});
-
-check("brightness scales the luminance", () => {
-  const image = makeImage(2, 2, () => [80, 80, 80, 255]);
-  const out = Q.applyAdjustments(image, {
-    black: 0,
-    white: 1,
-    brightness: 2,
-    contrast: 1,
-    saturation: 1,
-    hue: 0,
-    grey: false,
-  });
-  assertClose(out.data[0], 160, 2, "the red channel");
-});
-
-check("greyscale drops the chroma", () => {
-  const image = makeImage(2, 2, () => [255, 100, 50, 255]);
-  const out = Q.applyAdjustments(image, {
-    black: 0,
-    white: 1,
-    brightness: 1,
-    contrast: 1,
-    saturation: 1,
-    hue: 0,
-    grey: true,
-  });
-  assertEqual(out.data[0], out.data[1], "red and green");
-  assertEqual(out.data[1], out.data[2], "green and blue");
-});
-
-check("saturation zero is greyscale", () => {
-  const image = makeImage(2, 2, () => [200, 60, 40, 255]);
-  const out = Q.applyAdjustments(image, {
-    black: 0,
-    white: 1,
-    brightness: 1,
-    contrast: 1,
-    saturation: 0,
-    hue: 0,
-    grey: false,
-  });
-  assertEqual(out.data[0], out.data[1], "red and green");
-});
-
-check("contrast widens the separation between two greys", () => {
-  const image = makeImage(2, 2, (x) => (x === 0 ? [110, 110, 110, 255] : [145, 145, 145, 255]));
-  const flat = Q.applyAdjustments(image, Q.defaultAdjust());
-  const contrast = Q.applyAdjustments(image, {
-    black: 0,
-    white: 1,
-    brightness: 1,
-    contrast: 2,
-    saturation: 1,
-    hue: 0,
-    grey: false,
-  });
-  const before = Math.abs(flat.data[4] - flat.data[0]);
-  const after = Math.abs(contrast.data[4] - contrast.data[0]);
-  assert(after > before, `separation did not widen: ${before} -> ${after}`);
-});
-
-check("the black point clips the shadows", () => {
-  const image = makeImage(2, 2, () => [40, 40, 40, 255]);
-  const out = Q.applyAdjustments(image, {
-    black: 0.2,
-    white: 1,
-    brightness: 1,
-    contrast: 1,
-    saturation: 1,
-    hue: 0,
-    grey: false,
-  });
-  assertEqual(out.data[0], 0, "the shadow was not clipped");
-});
-
-check("the white point clips the highlights", () => {
-  const image = makeImage(2, 2, () => [230, 230, 230, 255]);
-  const out = Q.applyAdjustments(image, {
-    black: 0,
-    white: 0.8,
-    brightness: 1,
-    contrast: 1,
-    saturation: 1,
-    hue: 0,
-    grey: false,
-  });
-  assertEqual(out.data[0], 255, "the highlight was not clipped");
-});
-
-check("auto levels reads the histogram's percentiles", () => {
-  /* Half the pixels are black, half are white. */
-  const image = makeImage(2, 2, (x, y) => (y === 0 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
-  const levels = Q.autoLevels(image);
-  assert(levels.black <= 0.02, `black point ${levels.black}`);
-  assert(levels.white >= 0.98, `white point ${levels.white}`);
-});
-
-check("auto levels on a flat image stays safe", () => {
-  const image = makeImage(2, 2, () => [128, 128, 128, 255]);
-  const levels = Q.autoLevels(image);
-  assert(levels.white > levels.black, "the range collapsed");
-});
-
-/* ==========================================================================
-   Geometry
-   ========================================================================== */
-
 console.log("\ngeometry");
 
 check("Bresenham draws a horizontal line", () => {
@@ -1247,9 +738,7 @@ const JS_FILES = [
   "js/history.js",
   "js/storage.js",
   "js/canvas.js",
-  "js/reference.js",
   "js/io.js",
-  "js/workspace.js",
   "js/menu.js",
   "js/app.js",
 ];
@@ -1312,7 +801,7 @@ check("there is no inline script and no inline event handler", () => {
 
 check("the scripts are plain files, loaded in order, with no modules", () => {
   const sources = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-  assertEqual(sources.length, 10, "script count");
+  assertEqual(sources.length, 8, "script count");
   assert(!sources.some((src) => src.includes("type=\"module\"")), "an ES module");
   assertEqual(sources[0], "js/quantise.js", "the first script");
   assertEqual(sources[sources.length - 1], "js/app.js", "the last script");
@@ -1382,13 +871,6 @@ check("no id is used twice in the markup", () => {
 
 /* --- the source limits ---------------------------------------------------- */
 
-check("the source limits are stated on the load page", () => {
-  const limits = sandbox.VP.reference.LIMIT_TEXT;
-  assert(/never uploaded/.test(limits), "the limits do not say it is never uploaded");
-  assert(/64 MB/.test(limits), "the file size limit is not stated");
-  assert(/2048/.test(limits), "the working copy limit is not stated");
-  assert(html.includes("ws-load-note"), "the load page has no limits note");
-});
 
 /* --- the deployment rules -------------------------------------------------- */
 
@@ -1513,165 +995,12 @@ check("the CSP test server sends the real shared headers", () => {
 
 /* --- the UI fixes ---------------------------------------------------------- */
 
-check("the canvas has an X and a Y, and a lock between them", () => {
-  const markup = read("index.html");
-  const app = read("js/app.js");
 
-  assert(markup.includes('id="size-x"'), "there is no X dropdown");
-  assert(markup.includes('id="size-y"'), "there is no Y dropdown");
-  assert(markup.includes('id="size-lock"'), "there is no lock button");
 
-  /* The dropdowns are filled from the allowed sizes, so they cannot offer
-     a size the app cannot draw. */
-  assert(
-    /function fillSizes[\s\S]{0,600}Q\.ALLOWED_SIZES/.test(app),
-    "the size dropdowns are not filled from the allowed sizes",
-  );
 
-  /* The lock is a real toggle, and it is remembered. */
-  assert(app.includes("state.sizeLocked"), "there is no lock state");
-  assert(
-    /lock\.addEventListener[\s\S]{0,400}state\.sizeLocked = !state\.sizeLocked/.test(app),
-    "the lock button does not toggle",
-  );
-  assert(
-    app.includes("prefs.sizeLocked = state.sizeLocked"),
-    "the lock state is not saved",
-  );
-});
 
-check("the allowed sizes run from 16 to 512", () => {
-  assertEqual(Q.ALLOWED_SIZES.join(","), "16,32,64,128,256,512", "the sizes");
-});
 
-check("a locked canvas is square and an unlocked one is not", () => {
-  const app = read("js/app.js");
-  /* Linked, the two edges are one number; separate, each is its own. */
-  assert(
-    /if \(state\.sizeLocked\) requestResize\(value, value\)/.test(app),
-    "the lock does not tie X and Y together",
-  );
-  assert(
-    /else requestResize\(value, base\.height\)/.test(app),
-    "an unlocked X still moves Y",
-  );
-  assert(
-    /else requestResize\(base\.width, value\)/.test(app),
-    "an unlocked Y still moves X",
-  );
-  /* The base of a second change is the *pending* size, not the canvas's
-     current one: set X to 64, then Y to 32, and the panel must say
-     "64 × 32" — not "16 × 32", which would throw the 64 away. */
-  assert(
-    /const base = state\.pendingResize \|\| VP\.canvas\.state/.test(app),
-    "a second size change does not build on the pending one",
-  );
-});
 
-check("the canvas is rectangular all the way down", () => {
-  const canvas = read("js/canvas.js");
-  const quantise = read("js/quantise.js");
-  const io = read("js/io.js");
-
-  /* The state is a width and a height, not one size. */
-  assert(/width: 16,\s*\n\s*height: 16,/.test(canvas), "the canvas has no width and height");
-  assert(!/state\.size\b/.test(canvas), "the canvas still has a single size");
-
-  /* The grid is indexed by a row stride, not by a square. */
-  assert(/row \* width \+ col/.test(canvas), "the grid is still indexed as a square");
-  assert(
-    /Q\.sampleGrid = function sampleGrid\(source, width, height/.test(quantise),
-    "the sampler still takes one size",
-  );
-
-  /* The export follows both edges. */
-  assert(
-    /IO\.exportPNG = function exportPNG\(width, height/.test(io),
-    "the PNG export still takes one size",
-  );
-  assert(
-    /IO\.buildProject|buildProject\(width, height/.test(quantise),
-    "the project file still carries one size",
-  );
-});
-
-check("there is one art canvas, and the workspace shares it", () => {
-  const markup = read("index.html");
-  const workspace = read("js/workspace.js");
-  const canvas = read("js/canvas.js");
-
-  /* One canvas element for the artwork. The workspace used to have a
-     second one — a copy of the art at a different scale — and the two
-     modes kept their own. */
-  const artCanvases = [...markup.matchAll(/<canvas[^>]*id="([^"]+)"/g)].map((m) => m[1]);
-  assertEqual(
-    artCanvases.filter((id) => id === "art-canvas").length,
-    1,
-    "there is more than one art canvas",
-  );
-  assert(!markup.includes('id="preview-pane"'), "the workspace still has its own preview canvas");
-
-  /* The live conversion goes onto that canvas, as a layer. */
-  assert(
-    /C\.setPreview = function setPreview/.test(canvas),
-    "the canvas has no preview layer",
-  );
-  assert(
-    /VP\.canvas\.setPreview\(result/.test(workspace),
-    "the workspace does not draw the live conversion on the canvas",
-  );
-  assert(
-    /VP\.canvas\.clearPreview\(\)/.test(workspace),
-    "the workspace does not take the preview off the canvas",
-  );
-});
-
-check("the two panes zoom independently", () => {
-  const markup = read("index.html");
-  const workspace = read("js/workspace.js");
-  const app = read("js/app.js");
-
-  assert(markup.includes('id="ws-zoom"'), "the source pane has no zoom slider");
-  assert(markup.includes('id="canvas-zoom"'), "the canvas has no zoom slider");
-
-  /* The source's zoom is the workspace's own state; the canvas's is the
-     canvas's own. Neither one writes to the other. */
-  assert(
-    /state\.zoom = next/.test(workspace),
-    "the source zoom is not the workspace's own",
-  );
-  assert(
-    !/VP\.canvas\.setScale/.test(workspace),
-    "the workspace moves the canvas's zoom",
-  );
-  assert(
-    /setZoom\(VP\.canvas\.scaleFromSlider/.test(app),
-    "the canvas zoom slider does not drive the canvas",
-  );
-  assert(
-    !/function setZoom[\s\S]{0,400}VP\.workspace/.test(app),
-    "the canvas zoom moves the source's zoom",
-  );
-  assert(
-    !/VP\.workspace\.state\.zoom\s*=/.test(workspace),
-    "the workspace writes to somebody else's zoom",
-  );
-});
-
-check("the workspace converts into the canvas's own size", () => {
-  const workspace = read("js/workspace.js");
-
-  /* One size, one grid. The workspace used to carry a size of its own,
-     which was a second answer to the same question. */
-  assert(
-    /function gridSize\(\)[\s\S]{0,300}VP\.canvas\.state\.width/.test(workspace),
-    "the workspace has a size of its own",
-  );
-  assert(
-    !/convertSize/.test(workspace),
-    "the workspace still keeps a separate convert size",
-  );
-});
 
 check("there is one menu, on the left, and it drops open", () => {
   const markup = read("index.html");
@@ -1686,38 +1015,16 @@ check("there is one menu, on the left, and it drops open", () => {
     "there is no left-hand column for the menu",
   );
 
-  /* The Image mode's controls live inside that same menu, not in a column
-     of their own. */
-  assert(markup.includes('id="menu-image"'), "the Image mode has no menu group");
-  const menuGroup = markup.slice(
-    markup.indexOf('id="menu-image"'),
-    markup.indexOf('id="menu-foot"')
-  );
-  for (const id of ["ws-black", "ws-extract", "ws-match-flat"]) {
-    assert(menuGroup.includes(`id="${id}"`), `${id} is not in the menu`);
-  }
-  /* The primary action sits at the foot of the same column. */
-  assert(
-    markup.indexOf('id="ws-convert"') > markup.indexOf('id="sidebar"'),
-    "the primary action left the menu",
-  );
-  assert(
-    markup.indexOf('id="ws-convert"') < markup.indexOf('id="centre"'),
-    "the primary action is not in the menu column",
-  );
-
-  /* And the centre is left with the photo and the canvas, and nothing
-     else. */
+  /* The centre is the canvas and nothing else. */
   const centre = markup.slice(
     markup.indexOf('id="centre"'),
     markup.indexOf('id="bottom"')
   );
-  assert(
-    !centre.includes('id="ws-black"'),
-    "the Image mode's controls are still a column of their own",
-  );
-  assert(centre.includes('id="ws-source-pane"'), "the source pane left the centre");
   assert(centre.includes('id="canvas-view"'), "the canvas left the centre");
+  assert(
+    !centre.includes('id="ws-source-pane"'),
+    "the source pane is still in the centre — that is VoidPixelatr's",
+  );
 
   /* The sections open and close. */
   assert(
@@ -1747,81 +1054,7 @@ check("there is one menu, on the left, and it drops open", () => {
   assert(popover !== null, "the pop-over is not there");
 });
 
-check("the grid has its own zoom and pan, and the photo does not move them", () => {
-  const workspace = read("js/workspace.js");
 
-  /* The grid's position and size are their own state, separate from the
-     photo's zoom and pan. */
-  assert(/gridX: OVERLAY_INSET/.test(workspace), "the grid has no position of its own");
-  assert(/gridY: OVERLAY_INSET/.test(workspace), "the grid has no position of its own");
-  assert(/cellAuto: true/.test(workspace), "the grid's cell size is not its own");
-
-  /* The sampler is told where the grid is, so the grid decides what is
-     converted. */
-  assert(
-    /function geometry[\s\S]{0,400}originX: state\.gridX/.test(workspace),
-    "the sampler is not told where the grid is",
-  );
-  assert(
-    /function geometry[\s\S]{0,400}originY: state\.gridY/.test(workspace),
-    "the sampler is not told where the grid is",
-  );
-  /* And the photo's zoom is not what places the grid. */
-  assert(
-    !/originX: OVERLAY_INSET/.test(workspace),
-    "the grid is still pinned to the corner of the pane",
-  );
-
-  /* A cell can be one pixel across. The old floor of four meant a
-     256-cell grid was always 1024 pixels across and ran off the bottom of
-     the pane — the grid could not be seen, let alone fitted. */
-  assert(/GRID_CELL_MIN = 1/.test(workspace), "a cell cannot be smaller than four pixels");
-  assert(
-    !/Math\.max\(4,/.test(workspace),
-    "the cell size still has a floor of four pixels",
-  );
-
-  /* There is a way to fit the whole grid, and a way to move it. */
-  assert(workspace.includes("W.fitGrid = function fitGrid("), "there is no fit-the-grid");
-  assert(workspace.includes("W.panGridBy = function panGridBy("), "the grid cannot be moved");
-  assert(workspace.includes("W.zoomGrid = function zoomGrid("), "the grid cannot be zoomed");
-  assert(read("index.html").includes('id="grid-fit"'), "there is no fit-the-grid button");
-
-  /* Shift moves the grid; without it the drag moves the photo. */
-  assert(
-    /draggingGrid = event\.shiftKey/.test(workspace),
-    "the grid cannot be moved with the mouse",
-  );
-  assert(
-    /if \(event\.shiftKey\)[\s\S]{0,120}W\.zoomGrid/.test(workspace),
-    "the grid cannot be zoomed with the wheel",
-  );
-
-  /* The grid's own slider moves the grid and nothing else. */
-  const markup = read("index.html");
-  assert(markup.includes('id="grid-zoom"'), "the grid has no zoom slider");
-  assert(
-    /el\.gridSlider\.addEventListener[\s\S]{0,200}W\.setGridCell/.test(workspace),
-    "the grid's slider does not drive the grid",
-  );
-});
-
-check("the grid is re-fitted when the canvas changes size", () => {
-  const app = read("js/app.js");
-
-  /* The grid over the photo is the canvas's size. When the canvas is
-     resized, the grid has to be re-fitted — otherwise it keeps the cell
-     size it had, grows off the bottom of the pane, and half of what is
-     converted is out of sight. */
-  assert(
-    /function doResize[\s\S]{0,900}VP\.workspace\.updateCellSize\(true\)/.test(app),
-    "a resize does not tell the workspace the grid has changed",
-  );
-  assert(
-    /function doResize[\s\S]{0,900}VP\.workspace\.recentreSource\(\)/.test(app),
-    "a resize does not re-centre the photo on the new grid",
-  );
-});
 
 check("the built-in palettes are balanced across the hue wheel", () => {
   /* The complaint that started this: every built-in had one red and one
@@ -1926,16 +1159,6 @@ check("the spec's palette tables match the build", () => {
   }
 });
 
-check("a loaded photo switches the reference on", () => {
-  /* The reference loaded but stayed in mode "off", so the canvas never
-     changed: the user loaded an image and saw nothing, and concluded the
-     upload had failed. */
-  const source = read("js/app.js");
-  assert(
-    /VP\.reference\.mode === "off"\)\s*VP\.reference\.setMode\("under"\)/.test(source),
-    "loading an image does not switch the reference on",
-  );
-});
 
 check("a failed load is reported where the user can see it", () => {
   const source = read("js/app.js");
@@ -1945,8 +1168,8 @@ check("a failed load is reported where the user can see it", () => {
     "the error is not written to the alert bar",
   );
   assert(
-    /function loadImageFile[\s\S]{0,900}showError\(/.test(source),
-    "a failed image load does not call showError",
+    /function importJsonFile[\s\S]{0,900}showError\(/.test(source),
+    "a failed import does not call showError",
   );
 });
 
@@ -2033,17 +1256,16 @@ check("the menu never cuts a control", () => {
   );
 });
 
-check("the menu's primary action is pinned, not scrolled", () => {
-  assert(html.includes('class="menu-foot"'), "the menu has no pinned footer");
+check("the menu is one scrolling column", () => {
   assert(html.includes('class="menu"'), "the menu has no scrolling column");
   const css = read("css/style.css");
   assert(
-    /\.menu-foot[\s\S]{0,200}flex: 0 0 auto/.test(css),
-    "the pinned footer can be scrolled away",
+    /\.menu[\s\S]{0,200}overflow-y: auto/.test(css),
+    "the menu does not scroll",
   );
   assert(
     /\.sidebar[\s\S]{0,200}display: flex/.test(css),
-    "the sidebar is not a flex column, so the footer cannot be pinned",
+    "the sidebar is not a flex column",
   );
 });
 
@@ -2063,7 +1285,7 @@ check("the pane labels are headers, not overlays on the image", () => {
 check("every control group is labelled", () => {
   /* A bare "G", or a row of naked numbers, gave no clue what it was. */
   const groups = [...html.matchAll(/class="group"[^>]*>([\s\S]*?)<\/div>/g)];
-  assert(groups.length >= 4, `only ${groups.length} labelled groups`);
+  assert(groups.length >= 3, `only ${groups.length} labelled groups`);
   for (const group of groups) {
     assert(
       group[1].includes("group-label"),
@@ -2090,169 +1312,65 @@ check("the live-site check exists and does not need the probe", () => {
 check("an ImageData is never handed to drawImage", () => {
   /* Firefox refuses an ImageData as a drawImage source:
        "Argument 1 could not be converted to any of: ..."
-     The reference resampler did exactly that, so any photo over the
-     working cap failed to load at all. The conversion is centralised in
-     toDrawable, and drawToImageData is the one place that draws. */
-  const reference = read("js/reference.js");
+     So the conversion is centralised in toDrawable, and drawToImageData is the
+     one place that draws. */
+  const io = read("js/io.js");
   assert(
-    reference.includes("function toDrawable("),
-    "there is no toDrawable — an ImageData can still reach drawImage",
+    io.includes("function imageDataCanvas("),
+    "there is no imageDataCanvas — an ImageData can still reach drawImage",
   );
   assert(
-    /function drawToImageData[\s\S]{0,400}drawImage\(toDrawable\(/.test(reference),
-    "drawToImageData does not convert the drawable first",
+    /function imageDataCanvas[\s\S]{0,400}putImageData\(/.test(io),
+    "the ImageData is not painted into a canvas first",
+  );
+  /* And the scaler draws the canvas, never the ImageData. */
+  assert(
+    /function scaleImageData[\s\S]{0,400}drawImage\(source/.test(io),
+    "the scaler draws something that is not a canvas",
   );
 
-  /* And the downscale — the path that actually broke — goes through it. */
-  assert(
-    /function downscale[\s\S]{0,500}drawToImageData\(/.test(reference),
-    "the downscale does not go through drawToImageData",
-  );
+  /* And nothing else hands one over raw: only the first argument of
+     drawImage is the source, so only that one is checked. */
+  for (const file of JS_FILES) {
+    const source = read(file);
+    const bad = [...source.matchAll(/drawImage\(\s*([^,)]*)/g)].filter((m) =>
+      /imageData|\bdata\b/.test(m[1]),
+    );
+    assertEqual(bad.length, 0, `${file} hands an ImageData to drawImage`);
+  }
 });
 
-check("the test images include one over the working cap", () => {
-  const maker = read("tools/make-test-images.py");
-  assert(
-    maker.includes("test-large.png"),
-    "there is no over-cap test image, so the resampler is never exercised",
-  );
-  assert(
-    /2400/.test(maker) && /1800/.test(maker),
-    "the over-cap test image is not over the 2048 working cap",
-  );
-});
-
-check("the browser suite loads a photo over the working cap", () => {
-  const e2e = read("tests/browser/e2e.py");
-  assert(
-    e2e.includes("test-large.png"),
-    "the e2e suite never loads an over-cap photo",
-  );
-  assert(
-    e2e.includes("a photo over the working cap loads"),
-    "the e2e suite does not check that an over-cap photo loads",
-  );
-});
 
 /* --- the sliders and the page that has to keep up ------------------------- */
 
 check("every slider has a reset button", () => {
   const markup = read("index.html");
-  const workspace = read("js/workspace.js");
 
   /* Every range input in the app. */
   const sliders = [...markup.matchAll(/<input type="range" id="([^"]+)"/g)].map(
     (m) => m[1],
   );
-  assert(sliders.length >= 12, `only ${sliders.length} sliders found in the markup`);
+  assert(sliders.length >= 1, `only ${sliders.length} sliders found in the markup`);
 
-  /* The three zoom sliders are framing controls, not adjustments: their
-     "normal" is the Fit button beside them, and that is what the test
-     below checks for them instead. */
-  const zoomSliders = ["ws-zoom", "canvas-zoom", "grid-zoom"];
-
-  /* The workspace sliders are covered by attachReset calls, one per slider. */
-  for (const id of sliders) {
-    if (id === "reference-opacity") continue;
-    if (zoomSliders.includes(id)) continue;
-    assert(
-      workspace.includes(`attachReset(document.getElementById("${id}")`),
-      `the ${id} slider has no reset button`,
-    );
-  }
-
-  /* And each zoom slider has a Fit button of its own, so it can always be
-     put back. */
-  assert(markup.includes('id="ws-fit"'), "the source zoom has no fit button");
+  /* The canvas zoom is a framing control, not an adjustment: its "normal"
+     is the Fit button beside it. */
   assert(markup.includes('id="canvas-fit"'), "the canvas zoom has no fit button");
-  assert(markup.includes('id="grid-fit"'), "the grid zoom has no fit button");
+  assert(
+    markup.includes('id="canvas-zoom"'),
+    "the canvas has no zoom slider",
+  );
+});
 
-  /* And the one in the reference strip, which the app wires up. */
+check("the canvas zoom slider is driven the same way a hand-made change is", () => {
   const app = read("js/app.js");
   assert(
-    app.includes('attachReset(opacity, "the reference opacity")'),
-    "the reference opacity slider has no reset button",
-  );
-
-  /* The reset target is the slider's own shipped value, so the button and
-     the algorithm's default can never disagree. */
-  assert(
-    workspace.includes("slider.value = slider.defaultValue;"),
-    "the reset button does not restore the slider's shipped value",
+    /zoomSlider\.addEventListener\("input"/.test(app),
+    "the zoom slider is not driven by its own events",
   );
 });
 
-check("the reset button travels the same path as a hand-made change", () => {
-  const workspace = read("js/workspace.js");
-  assert(
-    /dispatchEvent\(new Event\("input"/.test(workspace) &&
-      /dispatchEvent\(new Event\("change"/.test(workspace),
-    "the reset button does not re-dispatch the slider's own events",
-  );
-});
 
-check("the settle bakes the current adjustment before the full pass", () => {
-  /* While a control is moving only the reduced copy is updated, so the
-     full-resolution copy is stale. The settle has to bring it up to date —
-     otherwise the preview snaps back to the previous value a fraction of a
-     second after you stop moving, and the page looks like it never updated. */
-  const reference = read("js/reference.js");
-  const workspace = read("js/workspace.js");
 
-  assert(
-    reference.includes("R.commitAdjust = function commitAdjust("),
-    "there is no commitAdjust — the full copy is never brought up to date",
-  );
-  assert(
-    reference.includes("state.adjustedStale = true;"),
-    "the full copy is not marked stale while a control is moving",
-  );
-  assert(
-    /function settlePreview[\s\S]{0,400}commitAdjust\(\)/.test(workspace),
-    "the settle does not bake the adjustment first",
-  );
-  assert(
-    /function settlePreview[\s\S]{0,600}runPreview\(false\)/.test(workspace),
-    "the settle does not render the full result",
-  );
-  /* And the settle has to redraw the source pane, which is drawn from the
-     full copy — otherwise the photo stays stale until something else
-     redraws it, and the user has to nudge the image to make the page
-     catch up. */
-  assert(
-    /function settlePreview[\s\S]{0,600}W\.draw\(\)/.test(workspace),
-    "the settle does not redraw the source pane",
-  );
-});
-
-check("the tuning palette never compounds", () => {
-  /* Transforming the last result instead of the original made every slider
-     move apply on top of the previous one, so the colours ran away while
-     you dragged and putting the slider back did not restore them. */
-  const palette = read("js/palette.js");
-  assert(
-    palette.includes("stagedSource"),
-    "the staging palette keeps no untransformed source",
-  );
-  assert(
-    /function transformStaged[\s\S]{0,700}const base = state\.stagedSource \|\| state\.staged;/.test(
-      palette,
-    ),
-    "transformStaged does not start from the original extraction",
-  );
-});
-
-check("a preset moves the sliders with it", () => {
-  const workspace = read("js/workspace.js");
-  assert(
-    workspace.includes("W.syncTuneSliders = function syncTuneSliders("),
-    "there is no syncTuneSliders",
-  );
-  assert(
-    /function applyPreset[\s\S]{0,700}syncTuneSliders\(\)/.test(workspace),
-    "a preset changes the state but leaves the sliders showing the old values",
-  );
-});
 
 check("a confirmation does not expire on a timer", () => {
   /* The expiry made "New" a trap: click it, read the label, look away for
@@ -2275,51 +1393,10 @@ check("a confirmation does not expire on a timer", () => {
   );
 });
 
-check("a palette change reaches the workspace preview", () => {
-  /* The swatch grid is only half of a palette change. The live preview in
-     the workspace has to follow it too, or switching the palette in the
-     sidebar leaves the preview showing the previous palette's result —
-     measured, the preview hash did not change at all. */
-  const app = read("js/app.js");
-  assert(
-    /function renderAll[\s\S]{0,600}VP\.workspace\.refresh\(\)/.test(app),
-    "renderAll does not refresh the workspace preview, so a palette change never reaches it",
-  );
-});
 
-check("there is always a way to load a photo", () => {
-  /* The Load button used to live in the reference strip, and the strip is
-     hidden until a photo is loaded — so before your first load there was
-     nothing on screen to click, and the only route in was dropping a file
-     over exactly the right box. */
-  const markup = read("index.html");
-  const app = read("js/app.js");
 
-  assert(
-    markup.includes('id="load-photo"'),
-    "the top bar has no button to load a photo",
-  );
-  assert(
-    app.includes('$("load-photo")'),
-    "the load-photo button is never wired up",
-  );
-  assert(
-    /load-photo[\s\S]{0,200}openFilePicker\("file-image"\)/.test(app),
-    "the load-photo button does not open the file picker",
-  );
-  /* The strip is hidden until there is an image, so the button cannot live
-     in there. */
-  assert(
-    /id="load-photo"[\s\S]{0,4000}<div class="reference-strip" id="reference-strip" hidden>/.test(
-      markup,
-    ) === false ||
-      markup.indexOf('id="load-photo"') < markup.indexOf('id="reference-strip"'),
-    "the load button is inside the hidden reference strip",
-  );
-});
-
-check("a photo can be dropped anywhere on the page", () => {
-  /* Releasing a photo over the sidebar, the top bar or the bottom bar did
+check("a file can be dropped anywhere on the page", () => {
+  /* Releasing a file over the sidebar, the top bar or the bottom bar did
      nothing at all. The drop handler now lives on the document. */
   const app = read("js/app.js");
   const bind = app.slice(app.indexOf("function bindDragAndDrop("));
@@ -2350,6 +1427,81 @@ check("the drop only accepts files", () => {
   assert(
     /dragHasFiles[\s\S]{0,200}Files/.test(app),
     "the drag handler does not look for the Files type",
+  );
+});
+
+/* --- the split ---------------------------------------------------------------- */
+
+check("there is no photo in this project", () => {
+  /* The photo half is a separate project — VoidPixelatr. Nothing of it is
+     left here, and nothing here may reach for it. */
+  const markup = read("index.html");
+  const app = read("js/app.js");
+
+  for (const file of ["js/workspace.js", "js/reference.js"]) {
+    assert(!exists(file), `${file} is still here`);
+  }
+  assert(!markup.includes('id="file-image"'), "the page still offers a photo input");
+  assert(!markup.includes("workspace"), "the page still has a workspace");
+  assert(!markup.includes("reference"), "the page still has a reference layer");
+  assert(!/VP\.reference/.test(app), "the app still reaches for the reference layer");
+  assert(!/VP\.workspace/.test(app), "the app still reaches for the workspace");
+  assert(!/indexedDB/.test(read("js/storage.js")), "the app still stores a photo");
+});
+
+check("the canvas is square, 16, 32 or 64 pixels a side", () => {
+  const markup = read("index.html");
+  const app = read("js/app.js");
+  const quantise = read("js/quantise.js");
+
+  /* One dropdown, not two: the canvas is square. */
+  assert(markup.includes('id="size"'), "there is no size dropdown");
+  assert(!markup.includes('id="size-x"'), "the canvas still has an X");
+  assert(!markup.includes('id="size-y"'), "the canvas still has a Y");
+  assert(!markup.includes('id="size-lock"'), "the canvas still has a lock");
+
+  /* And the sizes are the three small ones. */
+  assert(/const SIZES = \[16, 32, 64\]/.test(app), "the sizes are not 16, 32 and 64");
+  assert(
+    /const ALLOWED_SIZES = \[16, 32, 64\]/.test(quantise),
+    "the project file may describe a canvas of another size",
+  );
+});
+
+check("the canvas is square all the way down", () => {
+  const app = read("js/app.js");
+  const quantise = read("js/quantise.js");
+
+  /* One number in, one number out: the size dropdown can only make a square
+     canvas. */
+  assert(
+    /VP\.canvas\.resize\(size, size\)/.test(app),
+    "the canvas is not resized to a square",
+  );
+  assert(
+    /const SIZES = \[16, 32, 64\]/.test(app),
+    "the offered sizes are not the three square ones",
+  );
+  /* And the file format agrees, so an imported project is square too. */
+  assert(
+    /const ALLOWED_SIZES = \[16, 32, 64\]/.test(quantise),
+    "the project file may describe a non-square canvas",
+  );
+});
+
+check("the palette is the whole of the menu", () => {
+  const markup = read("index.html");
+  const menu = markup.slice(
+    markup.indexOf('id="menu"'),
+    markup.indexOf('id="colour-popover"'),
+  );
+  assert(menu.includes('id="palette-select"'), "the menu has no palette selector");
+  assert(menu.includes('id="palette-generate"') === false, "the menu still generates from a photo");
+  /* The colours are a pop-over, not a section. */
+  assert(markup.includes('id="colour-popover"'), "there is no colour pop-over");
+  assert(
+    markup.indexOf('id="swatch-grid"') > markup.indexOf('id="colour-popover"'),
+    "the swatch grid is not in the pop-over",
   );
 });
 

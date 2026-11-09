@@ -6,16 +6,14 @@
 
        artBuffer     offscreen canvas, width x height, 1 art pixel = 1 buffer pixel
        previewBuffer offscreen canvas, width x height, the live conversion
-       refBuffer     offscreen canvas, width x height, the reference underlay
        display       the <canvas> the user sees, size * scale, DPR-aware
 
-   A frame is composited in four steps: the reference (under), the art, the
-   live conversion (over the art), the grid lines — a few drawImage calls and
-   a few hundred line strokes, which is sub-millisecond at any size including
-   256x256.
+   A frame is composited in three steps: the art, the live conversion (over
+   the art), and the grid lines — a few drawImage calls and a few hundred
+   line strokes, which is sub-millisecond at any size.
 
-   The canvas is not square. It has a width and a height, and every buffer,
-   every grid index and every export follows both of them.
+   The canvas is square: 16, 32 or 64 pixels a side. Every buffer, every grid
+   index and every export follows that size.
 
    This file also owns the pointer handling: drag-paint with Bresenham
    interpolation, the explicit eraser, right-drag erase, and symmetry.
@@ -43,8 +41,6 @@
     artContext: null,
     previewBuffer: null,
     previewContext: null,
-    refBuffer: null,
-    refContext: null,
     display: null,
     context: null,
     stroke: null,
@@ -82,8 +78,6 @@
     state.artContext = state.artBuffer.getContext("2d");
     state.previewBuffer = makeCanvas(state.width, state.height);
     state.previewContext = state.previewBuffer.getContext("2d");
-    state.refBuffer = makeCanvas(state.width, state.height);
-    state.refContext = state.refBuffer.getContext("2d");
     C.rebuildArt();
     C.resizeDisplay();
     C.bindPointer();
@@ -131,13 +125,6 @@
     state.artContext = state.artBuffer.getContext("2d");
     state.previewBuffer = makeCanvas(newWidth, newHeight);
     state.previewContext = state.previewBuffer.getContext("2d");
-    state.refBuffer = makeCanvas(newWidth, newHeight);
-    state.refContext = state.refBuffer.getContext("2d");
-
-    /* The underlay lives in a buffer at the canvas's size, and the resize
-       made a new one — so the photo has to be resampled into it. Without
-       this the reference simply vanishes on every resize. */
-    if (VP.reference && VP.reference.resample) VP.reference.resample();
 
     C.rebuildArt();
     C.resizeDisplay();
@@ -401,9 +388,8 @@
     state.symmetry = mode;
   };
 
-  /* Composites the frame: reference (under), art, the live conversion (over
-     the art), the reference (over), and the grid lines last, so they stay
-     legible over everything. */
+  /* Composites the frame: the art, the live conversion (over the art), and
+     the grid lines last, so they stay legible over everything. */
   C.composite = function composite() {
     const context = state.context;
     if (!context) return;
@@ -422,17 +408,6 @@
     context.fillStyle = "#1a1a1f";
     context.fillRect(0, 0, cssWidth, cssHeight);
 
-    const reference = VP.reference;
-    const hasReference = reference && reference.hasImage();
-    const mode = reference ? reference.mode : "off";
-    const opacity = reference ? reference.opacity : 0.5;
-
-    if (hasReference && mode === "under") {
-      context.globalAlpha = opacity;
-      context.drawImage(state.refBuffer, 0, 0, cssWidth, cssHeight);
-      context.globalAlpha = 1;
-    }
-
     context.drawImage(state.artBuffer, 0, 0, cssWidth, cssHeight);
 
     /* The live conversion, over the art. It is a layer of this canvas, not
@@ -440,12 +415,6 @@
        photo. */
     if (state.previewBuffer) {
       context.drawImage(state.previewBuffer, 0, 0, cssWidth, cssHeight);
-    }
-
-    if (hasReference && mode === "over") {
-      context.globalAlpha = opacity;
-      context.drawImage(state.refBuffer, 0, 0, cssWidth, cssHeight);
-      context.globalAlpha = 1;
     }
 
     if (state.gridVisible && state.scale >= 8) {
@@ -466,17 +435,6 @@
     }
 
     context.globalAlpha = 1;
-  };
-
-  /* --- the reference buffer ---------------------------------------------------- */
-
-  /* Hands the reference module the buffer it should draw into. */
-  C.referenceBuffer = function referenceBuffer() {
-    return state.refBuffer;
-  };
-
-  C.referenceContext = function referenceContext() {
-    return state.refContext;
   };
 
   /* --- pointer handling ---------------------------------------------------------- */

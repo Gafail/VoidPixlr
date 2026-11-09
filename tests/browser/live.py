@@ -17,16 +17,15 @@ What it checks:
 
     · the page loads and the app boots (VP is there)
     · the palette rendered — so every script loaded, under the real CSP
-    · the canvas is the right size and the zoom is sensible
-    · a photo loads locally and the pipeline converts it
-    · a photo over the working cap is downscaled without an error
+    · the canvas is square, 16, 32 or 64, and it fits its pane
+    · a stroke paints the canvas, and undo takes it back
+    · the export produces a real PNG
     · zero network requests outside the origin
 """
 
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -35,8 +34,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from marionette import Marionette  # noqa: E402
-
-IMAGES = Path("/tmp/vp-images")
 
 PASSED = 0
 FAILURES: list[str] = []
@@ -60,10 +57,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://192.168.100.100")
     args = parser.parse_args(sys.argv[1:])
-
-    if not IMAGES.exists():
-        print("error: run `python3 tools/make-test-images.py /tmp/vp-images` first.")
-        return 2
 
     firefox = Marionette()
     try:
@@ -95,9 +88,20 @@ def main() -> int:
         canvas = firefox.execute_script(
             "const c = document.getElementById('art-canvas');"
             "const r = document.getElementById('canvas-region');"
-            "return {size: VP.canvas.state.width + '×' + VP.canvas.state.height,"
+            "return {width: VP.canvas.state.width,"
+            " height: VP.canvas.state.height,"
             " scale: VP.canvas.state.scale,"
             " css: Math.round(c.getBoundingClientRect().width), room: r.clientWidth};"
+        )
+        check(
+            "the canvas is square",
+            canvas["width"] == canvas["height"],
+            f"{canvas['width']}×{canvas['height']}",
+        )
+        check(
+            "the canvas is 16, 32 or 64 pixels a side",
+            canvas["width"] in (16, 32, 64),
+            f"{canvas['width']} pixels",
         )
         check(
             "the canvas fits its pane",
@@ -105,24 +109,30 @@ def main() -> int:
             f"{canvas['css']}px in a {canvas['room']}px pane",
         )
 
-        section("a photo, loaded locally")
-        firefox.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-        firefox.execute_script(
-            "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+        # The size dropdown offers exactly the three sizes, and nothing else.
+        sizes = firefox.execute_script(
+            "return Array.from(document.getElementById('size').options)"
+            ".map(function (o) { return o.value; });"
         )
-        time.sleep(1.5)
-
-        loaded = firefox.execute_script("return VP.reference.hasImage();")
-        check("the photo loaded", loaded is True, "no image")
-
-        mode = firefox.execute_script("return VP.reference.mode;")
         check(
-            "the photo is switched on, not silently off",
-            mode != "off",
-            "the reference mode is 'off', so the photo is invisible",
+            "the size dropdown offers 16, 32 and 64",
+            sizes == ["16", "32", "64"],
+            str(sizes),
         )
 
+        section("drawing")
+        # A stroke, exactly as a pointer stroke makes one: the canvas calls
+        # beginStroke, paints, and calls endStroke when the pointer lifts.
         painted = firefox.execute_script(
+            "VP.app.beginStroke();"
+            "VP.canvas.paintSymmetric(0, 0, 4);"
+            "VP.canvas.composite();"
+            "VP.app.endStroke(true);"
+            "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+        )
+        check("a stroke paints the canvas", painted > 0, f"{painted} cells painted")
+
+        on_canvas = firefox.execute_script(
             "const c = document.getElementById('art-canvas');"
             "const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;"
             "let seen = 0;"
@@ -131,82 +141,34 @@ def main() -> int:
             "}"
             "return seen;"
         )
-        check(
-            "the photo is actually on the canvas",
-            painted > 0,
-            "the canvas is still empty",
+        check("the paint reached the visible canvas", on_canvas > 0, "the canvas is still empty")
+
+        depth = firefox.execute_script("return VP.app.state.history.undoCount;")
+        check("the stroke is on the undo stack", depth > 0, f"{depth}")
+
+        firefox.execute_script(
+            "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'z', ctrlKey: true}));"
         )
-
-        # A photo over the working cap has to be downscaled, and the
-        # downscale used to hand an ImageData straight to drawImage, which
-        # Firefox refuses. Every other image here is under the cap, so
-        # nothing caught it on the deployed site either.
-        large = IMAGES / "test-large.png"
-        if large.exists():
-            section("a photo over the working cap")
-            firefox.set_file_input("#file-image", str(large))
-            firefox.execute_script(
-                "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-            )
-            time.sleep(3.0)
-
-            alert = firefox.execute_script(
-                "return {shown: !document.getElementById('alert').hidden,"
-                " text: document.getElementById('alert-text').textContent};"
-            )
-            check(
-                "an over-cap photo loads on the deployed site",
-                firefox.execute_script("return VP.reference.hasImage();") is True,
-                alert["text"] or "no image",
-            )
-            check(
-                "an over-cap photo raises no error on the deployed site",
-                not alert["shown"],
-                alert["text"],
-            )
-
-            dims = firefox.execute_script(
-                "var s = VP.reference.state.source;"
-                "return [s.width, s.height, s.originalWidth, s.originalHeight];"
-            )
-            check(
-                "the over-cap photo is downscaled to the working copy",
-                dims[0] <= 2048 and dims[1] <= 2048,
-                str(dims),
-            )
-            check(
-                "the over-cap photo keeps its original dimensions",
-                dims[2] == 2400 and dims[3] == 1800,
-                str(dims),
-            )
-
-            # Put the small photo back for the rest of the run.
-            firefox.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-            firefox.execute_script(
-                "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-            )
-            time.sleep(1.5)
-
-        section("the pipeline")
-        firefox.execute_script("document.getElementById('workspace-toggle').click();")
-        time.sleep(0.6)
-        firefox.execute_script("document.getElementById('ws-extract').click();")
-        time.sleep(1.5)
-        extracted = firefox.execute_script(
-            "return document.getElementById('ws-palette-status').textContent;"
+        time.sleep(0.4)
+        remaining = firefox.execute_script(
+            "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
         )
-        check("a palette was extracted", bool(extracted and extracted.strip()), "no status")
+        check("undo takes the paint back", remaining == 0, f"{remaining} cells left")
 
-        firefox.execute_script("document.getElementById('ws-convert').click();")
-        time.sleep(1.5)
-        converted = firefox.execute_script(
-            "return {cells: VP.canvas.state.grid.filter(v => v >= 0).length,"
-            " size: VP.canvas.state.width + '×' + VP.canvas.state.height};"
+        section("the export")
+        png = firefox.execute_script(
+            "return VP.io.exportPNG(VP.canvas.state.width, VP.canvas.state.height,"
+            " VP.palette.colours(), VP.canvas.grid, 16, null);"
         )
         check(
-            "the conversion painted the canvas",
-            converted["cells"] > 0,
-            f"{converted['cells']} cells painted",
+            "the PNG export produces an image",
+            isinstance(png, str) and png.startswith("data:image/png;base64,"),
+            f"{str(png)[:40]}",
+        )
+        check(
+            "the PNG export is not empty",
+            isinstance(png, str) and len(png) > 200,
+            f"{len(png) if isinstance(png, str) else 0} characters",
         )
 
         section("no network requests")

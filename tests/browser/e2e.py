@@ -60,26 +60,18 @@ def section(title: str) -> None:
     print(f"\n{title}")
 
 
-def set_canvas_size(fx: Marionette, width: int, height: int | None = None) -> None:
-    """Resizes the canvas through the X and Y dropdowns.
+def set_canvas_size(fx: Marionette, size: int) -> None:
+    """Resizes the canvas through the size dropdown.
 
     The canvas has art on it for most of the run, and a resize that would
     crop the art asks first — so the panel is confirmed here rather than
     left hanging for the next check to trip over.
     """
-    if height is None:
-        height = width
     fx.execute_script(
-        "const x = document.getElementById('size-x');"
-        "x.value = '%d';"
-        "x.dispatchEvent(new Event('change', {bubbles: true}));" % width
+        "const s = document.getElementById('size');"
+        "s.value = '%d';"
+        "s.dispatchEvent(new Event('change', {bubbles: true}));" % size
     )
-    if height != width:
-        fx.execute_script(
-            "const y = document.getElementById('size-y');"
-            "y.value = '%d';"
-            "y.dispatchEvent(new Event('change', {bubbles: true}));" % height
-        )
     time.sleep(0.3)
     panel = fx.execute_script(
         "return getComputedStyle(document.getElementById('resize-panel')).display;"
@@ -176,15 +168,18 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     )
     check("the palette selector lists the built-ins", options == 3, f"got {options}")
 
-    strip = fx.execute_script(
-        "return getComputedStyle(document.getElementById('reference-strip')).display"
+    sizes = fx.execute_script(
+        "return Array.from(document.getElementById('size').options)"
+        ".map(function (o) { return o.value; });"
     )
-    check("the reference strip is hidden with no reference", strip == "none", f"display: {strip}")
+    check(
+        "the size dropdown offers 16, 32 and 64",
+        sizes == ["16", "32", "64"],
+        f"got {sizes}",
+    )
 
-    workspace = fx.execute_script(
-        "return getComputedStyle(document.getElementById('menu-image')).display"
-    )
-    check("the workspace is hidden until it is opened", workspace == "none", f"display: {workspace}")
+    photo = fx.execute_script("return document.getElementById('file-image');")
+    check("there is no photo input in this app", photo is None, "the input is still there")
 
     fx.screenshot(str(shots / "01-first-load.png"))
 
@@ -271,207 +266,6 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     check("mirror X paints both cells", mirrored == [5, 5], f"{mirrored}")
     fx.execute_script("VP.canvas.setSymmetry(0);")
 
-    section("the reference image")
-    fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-    fx.execute_script(
-        "var input = document.getElementById('file-image');"
-        "input.dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.2)
-
-    has_image = fx.execute_script("return VP.reference.hasImage();")
-    check("the image loads locally", bool(has_image), "no session image")
-
-    strip_display = fx.execute_script(
-        "return getComputedStyle(document.getElementById('reference-strip')).display;"
-    )
-    check("the reference strip appears", strip_display != "none", f"display: {strip_display}")
-
-    never = fx.execute_script(
-        "return document.querySelector('.never').textContent.trim();"
-    )
-    check("the strip says never uploaded", never == "never uploaded", never)
-
-    dims = fx.execute_script(
-        "var s = VP.reference.state.source; return [s.width, s.height];"
-    )
-    check("the working copy is bounded at 2048", dims[0] <= 2048 and dims[1] <= 2048, str(dims))
-
-    # The underlay lives in a buffer at the canvas's size, so a resize makes
-    # a new one — and the photo has to be resampled into it. It used to
-    # simply vanish, on every resize, and it was resampled as if the canvas
-    # were square, so a rectangle squashed the photo.
-    underlay = """
-      const c = VP.canvas.referenceBuffer();
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-      let lit = 0;
-      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) lit += 1;
-      return [c.width, c.height, lit];
-    """
-    before_underlay = fx.execute_script(underlay)
-    check(
-        "the underlay is drawn at the canvas's size",
-        before_underlay[0] == 16 and before_underlay[1] == 16 and before_underlay[2] > 0,
-        str(before_underlay),
-    )
-
-    # A rectangle: 64 x 16. The underlay must follow both edges.
-    fx.execute_script("document.getElementById('size-lock').click();")
-    time.sleep(0.2)
-    fx.execute_script(
-        "const x = document.getElementById('size-x');"
-        "x.value = '64';"
-        "x.dispatchEvent(new Event('change', {bubbles: true}));"
-        "const y = document.getElementById('size-y');"
-        "y.value = '16';"
-        "y.dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(0.4)
-    panel = fx.execute_script(
-        "return getComputedStyle(document.getElementById('resize-panel')).display;"
-    )
-    if panel != "none":
-        fx.click("#resize-confirm")
-        time.sleep(0.5)
-
-    rect = fx.execute_script(underlay)
-    check(
-        "the underlay follows a rectangular canvas",
-        rect[0] == 64 and rect[1] == 16 and rect[2] > 0,
-        str(rect),
-    )
-    check(
-        "the canvas is a rectangle",
-        fx.execute_script("return VP.canvas.state.width + '×' + VP.canvas.state.height;")
-        == "64×16",
-        "the canvas did not become a rectangle",
-    )
-
-    # Back to a 16 x 16 square, and locked again, for the rest of the run.
-    fx.execute_script(
-        "document.getElementById('size-lock').click();"
-        "const x = document.getElementById('size-x');"
-        "x.value = '16';"
-        "x.dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(0.4)
-    panel = fx.execute_script(
-        "return getComputedStyle(document.getElementById('resize-panel')).display;"
-    )
-    if panel != "none":
-        fx.click("#resize-confirm")
-        time.sleep(0.5)
-
-    # A photo larger than the working cap has to be downscaled, and the
-    # downscale used to hand an ImageData straight to drawImage, which
-    # Firefox refuses. Every image in the suite was under the cap, so
-    # nothing caught it. This one is over it.
-    large = IMAGES / "test-large.png"
-    if large.exists():
-        fx.set_file_input("#file-image", str(large))
-        fx.execute_script(
-            "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-        )
-        time.sleep(3.0)
-
-        alert = fx.execute_script(
-            "return {shown: !document.getElementById('alert').hidden,"
-            " text: document.getElementById('alert-text').textContent};"
-        )
-        check(
-            "a photo over the working cap loads",
-            fx.execute_script("return VP.reference.hasImage();") is True,
-            alert["text"] or "no image",
-        )
-        check(
-            "a photo over the working cap raises no error",
-            not alert["shown"],
-            alert["text"],
-        )
-
-        large_dims = fx.execute_script(
-            "var s = VP.reference.state.source;"
-            "return [s.width, s.height, s.originalWidth, s.originalHeight];"
-        )
-        check(
-            "the over-cap photo is downscaled to the working copy",
-            large_dims[0] <= 2048 and large_dims[1] <= 2048,
-            str(large_dims),
-        )
-        check(
-            "the over-cap photo keeps its original dimensions",
-            large_dims[2] == 2400 and large_dims[3] == 1800,
-            str(large_dims),
-        )
-
-        # Put the small photo back for the rest of the run.
-        fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-        fx.execute_script(
-            "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-        )
-        time.sleep(1.5)
-
-    fx.execute_script("VP.reference.setMode('under');")
-    time.sleep(0.3)
-    fx.screenshot(str(shots / "03-reference-underlay.png"))
-
-    section("the image workspace")
-    fx.execute_script("VP.workspace.toggle();")
-    time.sleep(0.6)
-    fx.execute_script("VP.workspace.fitSource();")
-    time.sleep(0.4)
-    fx.screenshot(str(shots / "04-workspace.png"))
-
-    # Every network request from here on is the thing under test.
-    fx.execute_script("performance.clearResourceTimings();")
-
-    # The workspace converts into the canvas's own size: one size, one grid.
-    set_canvas_size(fx, 32)
-    fx.execute_script("VP.workspace.updateCellSize(); VP.workspace.extract();")
-    time.sleep(0.4)
-
-    extracted = fx.execute_script("return VP.palette.colours().length;")
-    check(
-        "the extractor returns 32 colours",
-        extracted <= 32 and extracted >= 28,
-        f"got {extracted}",
-    )
-
-    staged = fx.execute_script("return VP.palette.hasStaged();")
-    check("the extracted palette is staged, not applied", bool(staged), "not staged")
-
-    fx.execute_script("VP.workspace.applyPreset('sprite pop');")
-    time.sleep(0.4)
-    tuned = fx.execute_script("return VP.palette.colours().length;")
-    check(
-        "the Sprite pop preset changes the palette",
-        tuned != 32 or True,
-        f"{tuned} colours",
-    )
-
-    # The live preview must change as the control moves, not only after it
-    # settles.
-    fx.execute_script(
-        "VP.reference.setAdjust({contrast: 1.6}, true);"
-    )
-    time.sleep(0.5)
-    fx.screenshot(str(shots / "05-workspace-tuned.png"))
-
-    fx.execute_script("VP.workspace.convert();")
-    time.sleep(0.4)
-
-    size = fx.execute_script(
-        "return VP.canvas.state.width + '×' + VP.canvas.state.height;"
-    )
-    check("the conversion sets the canvas size", size == "32×32", f"size {size}")
-
-    painted_cells = fx.execute_script(
-        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
-    )
-    check("the conversion paints the canvas", painted_cells > 100, f"{painted_cells} cells")
-
-    fx.screenshot(str(shots / "06-converted.png"))
-
     section("the menu")
 
     # One menu on the left, and everything in it drops open. The sections
@@ -491,48 +285,43 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
         return out;
         """
     )
-    shut = [m for m in menu_state if m["bodyHidden"] is True]
+    opened = [m for m in menu_state if m["expanded"] == "true"]
     check(
         "the menu's sections start shut, apart from the palette",
-        len(shut) >= 3,
-        f"{len(shut)} sections are open",
+        len(opened) == 1 and opened[0]["name"] == "palette",
+        f"open: {[m['name'] for m in opened]}",
     )
 
-    # Clicking a header opens its body.
+    # Clicking a header opens its body. The palette starts open, so the
+    # colours section is the one to try.
     fx.execute_script(
-        "document.querySelector('.menu-section[data-section=\"convert\"] .menu-head').click();"
+        "document.querySelector('.menu-section[data-section=\"colours\"] .menu-head').click();"
     )
     time.sleep(0.2)
-    convert_open = fx.execute_script(
+    colours_open = fx.execute_script(
         """
-        var s = document.querySelector('.menu-section[data-section="convert"]');
+        var s = document.querySelector('.menu-section[data-section="colours"]');
         return {
           expanded: s.querySelector('.menu-head').getAttribute('aria-expanded'),
-          bodyHidden: s.querySelector('.menu-body').hidden,
-          visible: s.querySelector('.menu-body').getBoundingClientRect().height > 0,
+          popover: !document.getElementById('colour-popover').hidden,
         };
         """
     )
     check(
-        "a section opens when its header is clicked",
-        convert_open["expanded"] == "true"
-        and convert_open["bodyHidden"] is False
-        and convert_open["visible"] is True,
-        f"{convert_open}",
+        "the colours section opens the pop-over",
+        colours_open["expanded"] == "true" and colours_open["popover"] is True,
+        f"{colours_open}",
     )
 
     # And clicking it again shuts it.
     fx.execute_script(
-        "document.querySelector('.menu-section[data-section=\"convert\"] .menu-head').click();"
+        "document.querySelector('.menu-section[data-section=\"colours\"] .menu-head').click();"
     )
     time.sleep(0.2)
-    convert_shut = fx.execute_script(
-        """
-        var s = document.querySelector('.menu-section[data-section="convert"]');
-        return s.querySelector('.menu-body').getBoundingClientRect().height === 0;
-        """
+    colours_shut = fx.execute_script(
+        "return document.getElementById('colour-popover').hidden;"
     )
-    check("a section shuts again", convert_shut is True, "the body is still there")
+    check("a section shuts again", colours_shut is True, "the pop-over is still there")
 
     # The colours are a pop-over, not a panel in the column.
     popover_before = fx.execute_script(
@@ -581,355 +370,28 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     )
     check("a click elsewhere closes the pop-over", popover_closed is True, "still open")
 
-    # The Image mode's controls are in the menu, not in a column of their own.
+    # The centre holds the canvas and nothing else.
     in_menu = fx.execute_script(
         """
         var menu = document.getElementById('menu');
-        var side = document.getElementById('sidebar');
         var centre = document.getElementById('centre');
         return {
-          black: menu.contains(document.getElementById('ws-black')),
-          extract: menu.contains(document.getElementById('ws-extract')),
-          convert: side.contains(document.getElementById('ws-convert')),
+          palette: menu.contains(document.getElementById('palette-select')),
+          swatches: menu.contains(document.getElementById('swatch-grid')),
           columns: centre.children.length,
         };
         """
     )
     check(
-        "the Image mode's controls live in the menu",
-        in_menu["black"] and in_menu["extract"] and in_menu["convert"],
+        "the palette lives in the menu",
+        in_menu["palette"],
         f"{in_menu}",
     )
     check(
-        "the centre holds only the photo and the canvas",
-        in_menu["columns"] == 2,
+        "the centre holds only the canvas",
+        in_menu["columns"] == 1,
         f"{in_menu['columns']} columns",
     )
-
-    section("the grid has its own view")
-
-    # The grid and the photo are two separate views. The grid's cell size
-    # and position are the workspace's own state.
-    grid_state = """
-        var s = VP.workspace.state;
-        var pane = document.getElementById('source-pane');
-        return {
-          cell: s.cellPx,
-          gx: s.gridX,
-          gy: s.gridY,
-          zoom: s.zoom,
-          panX: s.panX,
-          panY: s.panY,
-          paneW: pane.clientWidth,
-          paneH: pane.clientHeight,
-          gridW: VP.canvas.state.width * s.cellPx,
-          gridH: VP.canvas.state.height * s.cellPx,
-        };
-    """
-
-    # Fit the grid and check that the whole of it is inside the pane. This
-    # is the complaint: the grid ran off the bottom of the screen and there
-    # was no way to see all of it.
-    fx.execute_script("VP.workspace.fitGrid();")
-    time.sleep(0.4)
-    fitted = fx.execute_script(grid_state)
-    check(
-        "the whole grid fits inside the pane",
-        fitted["gridW"] <= fitted["paneW"] and fitted["gridH"] <= fitted["paneH"],
-        f"grid {fitted['gridW']}×{fitted['gridH']} in a pane of "
-        f"{fitted['paneW']}×{fitted['paneH']}",
-    )
-    check(
-        "the fitted grid is inside the pane, not off its edge",
-        fitted["gx"] >= 0
-        and fitted["gy"] >= 0
-        and fitted["gx"] + fitted["gridW"] <= fitted["paneW"] + 1
-        and fitted["gy"] + fitted["gridH"] <= fitted["paneH"] + 1,
-        f"grid at {fitted['gx']},{fitted['gy']}",
-    )
-
-    # The grid moves without the photo moving.
-    photo_before = fx.execute_script("return {z: VP.workspace.state.zoom, x: VP.workspace.state.panX, y: VP.workspace.state.panY};")
-    fx.execute_script("VP.workspace.panGridBy(40, 25);")
-    time.sleep(0.3)
-    after_pan = fx.execute_script(grid_state)
-    check(
-        "the grid moves",
-        after_pan["gx"] != fitted["gx"] or after_pan["gy"] != fitted["gy"],
-        "the grid did not move",
-    )
-    check(
-        "the photo does not move when the grid does",
-        after_pan["zoom"] == photo_before["z"]
-        and after_pan["panX"] == photo_before["x"]
-        and after_pan["panY"] == photo_before["y"],
-        f"{photo_before} -> "
-        f"{{'z': {after_pan['zoom']}, 'x': {after_pan['panX']}, 'y': {after_pan['panY']}}}",
-    )
-
-    # And the grid zooms without the photo zooming.
-    fx.execute_script("VP.workspace.zoomGrid(2, 100, 100);")
-    time.sleep(0.3)
-    after_zoom = fx.execute_script(grid_state)
-    check(
-        "the grid zooms on its own",
-        after_zoom["cell"] != after_pan["cell"],
-        f"cell {after_pan['cell']} -> {after_zoom['cell']}",
-    )
-    check(
-        "the photo does not zoom when the grid does",
-        after_zoom["zoom"] == photo_before["z"],
-        f"photo zoom {photo_before['z']} -> {after_zoom['zoom']}",
-    )
-
-    # A big canvas is the case that used to break: the cell size had a
-    # floor of four pixels, so a 256-cell grid was always 1024 pixels
-    # across and ran off the bottom of the pane.
-    fx.execute_script("VP.canvas.resize(256, 256);")
-    time.sleep(0.3)
-    fx.execute_script("VP.workspace.updateCellSize(); VP.workspace.fitGrid();")
-    time.sleep(0.4)
-    big = fx.execute_script(grid_state)
-    check(
-        "a 256-cell grid fits in the pane",
-        big["gridW"] <= big["paneW"] and big["gridH"] <= big["paneH"],
-        f"grid {big['gridW']}×{big['gridH']} in a pane of "
-        f"{big['paneW']}×{big['paneH']}",
-    )
-    check(
-        "a cell can be smaller than four pixels",
-        big["cell"] < 4,
-        f"the cell is {big['cell']} pixels",
-    )
-
-    # The grid's own slider moves the grid and nothing else.
-    fx.execute_script(
-        """
-        var z = document.getElementById('grid-zoom');
-        z.value = '80';
-        z.dispatchEvent(new Event('input', {bubbles: true}));
-        """
-    )
-    time.sleep(0.3)
-    slid = fx.execute_script(grid_state)
-    check(
-        "the grid's slider moves the grid",
-        slid["cell"] != big["cell"],
-        f"cell {big['cell']} -> {slid['cell']}",
-    )
-
-    # A canvas resize re-fits the grid, even after the user has set a cell
-    # size by hand: the grid is the canvas's grid, so its shape has changed
-    # outright and a cell size that fitted the old one can leave the new
-    # grid running off the pane.
-    set_canvas_size(fx, 128)
-    time.sleep(0.5)
-    refitted = fx.execute_script(grid_state)
-    check(
-        "a canvas resize re-fits the grid",
-        refitted["gridW"] <= refitted["paneW"] and refitted["gridH"] <= refitted["paneH"],
-        f"grid {refitted['gridW']}×{refitted['gridH']} in a pane of "
-        f"{refitted['paneW']}×{refitted['paneH']}",
-    )
-
-    # Put it back for the rest of the suite: the framing the next checks
-    # expect, with the photo over the grid.
-    fx.execute_script(
-        "VP.canvas.resize(32, 32);"
-        "VP.workspace.updateCellSize(true);"
-        "VP.workspace.fitGrid();"
-        "VP.workspace.fitSource();"
-    )
-    time.sleep(0.4)
-
-    section("the sliders keep up with the page")
-
-    # Every slider has a reset button, and the reset puts back exactly what
-    # the slider ships with.
-    sliders = fx.execute_script(
-        """
-        const out = [];
-        for (const el of document.querySelectorAll('input[type=range]')) {
-          let button = null;
-          const block = el.closest('.ws-slider');
-          if (block) button = block.querySelector('.btn-reset');
-          else {
-            const label = el.closest('label');
-            if (label) button = label.nextElementSibling;
-          }
-          out.push({
-            id: el.id,
-            defaultValue: el.defaultValue,
-            hasReset: !!(button && button.classList.contains('btn-reset')),
-          });
-        }
-        return out;
-        """
-    )
-    # The three zoom sliders are framing controls, not adjustments: each one
-    # has a Fit button of its own beside it, which is how it is put back.
-    zoom_sliders = {"ws-zoom", "canvas-zoom", "grid-zoom"}
-    without_reset = [
-        s["id"] for s in sliders if not s["hasReset"] and s["id"] not in zoom_sliders
-    ]
-    for zoom_id, fit_id in (
-        ("ws-zoom", "ws-fit"),
-        ("canvas-zoom", "canvas-fit"),
-        ("grid-zoom", "grid-fit"),
-    ):
-        check(
-            f"the {zoom_id} slider has a fit button",
-            bool(fx.execute_script(
-                "return !!document.getElementById('%s');" % fit_id
-            )),
-            f"there is no #{fit_id}",
-        )
-    check(
-        "every slider has a reset button",
-        not without_reset,
-        f"no reset on: {', '.join(without_reset)}",
-    )
-
-    # The preview must still be right a moment after a control stops moving,
-    # even when the control never sends a `change` event. The settle has to
-    # bake the current adjustment into the full-resolution copy itself.
-    preview_hash = """
-      const c = VP.canvas.state.previewBuffer;
-      if (!c) return 'none';
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-      let h = 0;
-      for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i]) >>> 0;
-      return c.width + 'x' + c.height + ':' + h;
-    """
-    source_hash = """
-      const s = document.getElementById('source-pane');
-      const d = s.getContext('2d').getImageData(0, 0, s.width, s.height).data;
-      let h = 0;
-      for (let i = 0; i < d.length; i += 397) h = (h * 31 + d[i]) >>> 0;
-      return h;
-    """
-    before_preview = fx.execute_script(preview_hash)
-    before_source = fx.execute_script(source_hash)
-
-    # `input` only: this is what a control that never commits looks like.
-    fx.execute_script(
-        """
-        const s = document.getElementById('ws-brightness');
-        s.value = 165;
-        s.dispatchEvent(new Event('input', {bubbles: true}));
-        """
-    )
-    time.sleep(0.05)
-    during = fx.execute_script(preview_hash)
-    time.sleep(0.5)
-    settled = fx.execute_script(preview_hash)
-    settled_source = fx.execute_script(source_hash)
-
-    check(
-        "the preview follows the control while it moves",
-        during != before_preview,
-        "the preview did not change at all",
-    )
-    check(
-        "the preview is still right when the control settles",
-        settled == during,
-        "the preview reverted to the previous value when the control settled",
-    )
-    check(
-        "the photo in the pane updates when the control settles",
-        settled_source != before_source,
-        "the source pane still shows the old photo",
-    )
-
-    # The reset button puts the slider, the state and the preview back.
-    fx.execute_script(
-        """
-        const block = document.getElementById('ws-brightness').closest('.ws-slider');
-        block.querySelector('.btn-reset').click();
-        """
-    )
-    time.sleep(0.5)
-    reset_value = fx.execute_script("return document.getElementById('ws-brightness').value;")
-    reset_state = fx.execute_script("return VP.reference.state.adjust.brightness;")
-    reset_preview = fx.execute_script(preview_hash)
-    check(
-        "the reset button puts the slider back",
-        reset_value == "100",
-        f"the slider reads {reset_value}",
-    )
-    check(
-        "the reset button puts the state back",
-        abs(reset_state - 1) < 0.001,
-        f"brightness is {reset_state}",
-    )
-    check(
-        "the reset button puts the preview back",
-        reset_preview == before_preview,
-        "the preview did not return to where it started",
-    )
-
-    # The tuning palette must not compound: moving a slider and putting it
-    # back has to restore exactly the colours that were there before.
-    tune_hash = "return VP.palette.state.staged.slice().join(',');"
-    tune_value = fx.execute_script(
-        "return document.getElementById('ws-tune-saturation').value;"
-    )
-    original_tune = fx.execute_script(tune_hash)
-    fx.execute_script(
-        """
-        const s = document.getElementById('ws-tune-saturation');
-        s.value = 160;
-        s.dispatchEvent(new Event('input', {bubbles: true}));
-        s.dispatchEvent(new Event('change', {bubbles: true}));
-        """
-    )
-    time.sleep(0.4)
-    tuned_palette = fx.execute_script(tune_hash)
-    fx.execute_script(
-        """
-        const s = document.getElementById('ws-tune-saturation');
-        s.value = %s;
-        s.dispatchEvent(new Event('input', {bubbles: true}));
-        s.dispatchEvent(new Event('change', {bubbles: true}));
-        """
-        % tune_value
-    )
-    time.sleep(0.4)
-    restored_tune = fx.execute_script(tune_hash)
-    check(
-        "the tuning palette does not compound",
-        restored_tune == original_tune,
-        "putting the slider back did not restore the colours",
-    )
-    check(
-        "the tuning palette does change when it is moved",
-        tuned_palette != original_tune,
-        "moving the slider changed nothing",
-    )
-
-    # A preset replaces the whole transform, so the sliders have to follow it.
-    fx.execute_script("VP.workspace.applyPreset('sprite pop');")
-    time.sleep(0.4)
-    preset = fx.execute_script(
-        """
-        const tune = VP.workspace.state.tune;
-        const node = document.getElementById('ws-tune-contrast');
-        return { state: tune.contrast, slider: parseFloat(node.value) };
-        """
-    )
-    check(
-        "a preset moves the sliders with it",
-        abs(preset["state"] - preset["slider"]) < 0.5,
-        f"the state says {preset['state']} and the slider says {preset['slider']}",
-    )
-
-    section("undo the conversion")
-    fx.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'z', ctrlKey: true}));")
-    time.sleep(0.3)
-    undone = fx.execute_script(
-        "return Array.from(VP.canvas.grid).filter(function (v) { return v === 3; }).length;"
-    )
-    check("the conversion is undoable", undone > 0, f"{undone} cells left")
 
     section("the no-upload guarantee")
     resources = fx.execute_script(
@@ -1108,9 +570,9 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
     fx.execute_script("VP.canvas.composite();")
 
     fx.execute_script(
-        "const x = document.getElementById('size-x');"
-        "x.value = '32';"
-        "x.dispatchEvent(new Event('change', {bubbles: true}));"
+        "const s = document.getElementById('size');"
+        "s.value = '32';"
+        "s.dispatchEvent(new Event('change', {bubbles: true}));"
     )
     time.sleep(0.3)
     panel = fx.execute_script(
@@ -1166,31 +628,6 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
     check("S cycles the symmetry", symmetry == 1, f"mode {symmetry}")
     fx.execute_script("VP.canvas.setSymmetry(0);")
 
-    fx.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'm'}));")
-    time.sleep(0.2)
-    mode = fx.execute_script("return VP.reference.state.mode;")
-    check("M cycles the reference mode", mode in ("off", "under", "over"), f"mode {mode}")
-
-    fx.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'w'}));")
-    time.sleep(0.5)
-    opened = fx.execute_script("return VP.workspace.isOpen();")
-    check("W toggles the workspace", opened is True, f"open: {opened}")
-    fx.execute_script("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'w'}));")
-    time.sleep(0.3)
-
-    section("the reference fit modes")
-    fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-    fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.2)
-
-    fits = []
-    for _ in range(3):
-        fits.append(fx.execute_script("return VP.reference.state.fit;"))
-        fx.execute_script("VP.reference.cycleFit();")
-        time.sleep(0.2)
-    check("the fit modes cycle", fits == ["cover", "contain", "1:1"], str(fits))
 
     section("copy PNG never dead-ends")
     label_before = fx.execute_script("return document.getElementById('copy-png').textContent;")
@@ -1203,19 +640,21 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
         f"'{label_before}' -> '{label_after}'",
     )
 
-    section("the 256x256 canvas")
-    fx.execute_script("VP.canvas.resize(256, 256);")
+    section("the 64x64 canvas")
+    fx.execute_script("VP.canvas.resize(64, 64);")
     time.sleep(0.3)
     fx.execute_script(
-        "for (var i = 0; i < 200; i++) { VP.canvas.paintSymmetric(i % 256, (i * 7) % 256, 3); }"
+        "for (var i = 0; i < 200; i++) { VP.canvas.paintSymmetric(i % 64, (i * 7) % 64, 3); }"
     )
     started = fx.execute_script(
         "var t = performance.now(); VP.canvas.rebuildArt(); return performance.now() - t;"
     )
-    check("a 256x256 redraw stays fast", started < 50, f"{started:.1f} ms")
+    check("a 64x64 redraw stays fast", started < 50, f"{started:.1f} ms")
 
-    # A 256x256 canvas at 16x would be a 4096x4096 backing store. The
-    # display is capped, so it must still composite without stalling.
+    # A 64x64 canvas at 64x would be a 4096x4096 backing store. The display
+    # is capped, so it must still composite without stalling.
+    fx.execute_script("VP.canvas.setScale(64);")
+    time.sleep(0.3)
     started = fx.execute_script(
         "var t = performance.now(); VP.canvas.composite(); return performance.now() - t;"
     )
@@ -1229,7 +668,7 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
     started = fx.execute_script(
         "var t = performance.now(); VP.canvas.composite(); return performance.now() - t;"
     )
-    check("a 256x256 composite at 4x stays fast", started < 50, f"{started:.1f} ms")
+    check("a 64x64 composite at 4x stays fast", started < 50, f"{started:.1f} ms")
 
     section("the inline confirm")
     fx.execute_script(
@@ -1346,8 +785,10 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
         """
     )
     time.sleep(1.5)
-    has_image = fx.execute_script("return VP.reference.hasImage();")
-    check("an image can be pasted", has_image is True, "no session image")
+    painted = fx.execute_script(
+        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+    )
+    check("an image can be pasted", painted > 0, f"{painted} cells painted")
 
     section("the import panel")
     before = fx.execute_script(
@@ -1366,136 +807,36 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
     modal = fx.execute_script("return document.querySelectorAll('dialog').length;")
     check("there is no native dialog", modal == 0, f"{modal} dialogs")
 
-    section("the export scale cap")
-    fx.execute_script("VP.canvas.resize(256, 256);")
+    section("the export scales")
+    fx.execute_script("VP.canvas.resize(64, 64);")
     time.sleep(0.3)
     fx.execute_script("document.getElementById('export-png').click();")
     time.sleep(0.3)
-    cap = fx.execute_script(
+    scales = fx.execute_script(
         """
-        var button = document.getElementById('export-scale-32');
-        return [button.disabled, button.textContent];
-        """
-    )
-    check(
-        "32x is refused on a 256x256 canvas",
-        cap[0] is True and "too large" in cap[1],
-        str(cap),
-    )
-
-    allowed = fx.execute_script(
-        """
-        var button = document.getElementById('export-scale-16');
-        return [button.disabled, button.textContent];
-        """
-    )
-    check("16x is still allowed on a 256x256 canvas", allowed[0] is False, str(allowed))
-
-    section("a palette change reaches the workspace preview")
-
-    # The swatch grid is only half of a palette change. The live preview in
-    # the workspace has to follow it too, or switching the palette in the
-    # sidebar leaves the preview showing the previous palette's result.
-    # Measured before the fix: the preview hash did not change at all.
-    #
-    # The suite has wiped the storage by this point, so there is nothing to
-    # preview until a photo is loaded again.
-    fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-    fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.5)
-    fx.execute_script("VP.workspace.open();")
-    time.sleep(0.8)
-
-    preview_of_palette = """
-        const c = VP.canvas.state.previewBuffer;
-        if (!c) return 'none';
-        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-        let h = 0;
-        for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i]) >>> 0;
-        return c.width + 'x' + c.height + ':' + h;
-    """
-    before_palette = fx.execute_script(preview_of_palette)
-    fx.execute_script(
-        """
-        const select = document.getElementById('palette-select');
-        select.value = 'Void Expanded';
-        select.dispatchEvent(new Event('change', {bubbles: true}));
-        """
-    )
-    time.sleep(0.8)
-    after_palette = fx.execute_script(preview_of_palette)
-    check(
-        "a palette change reaches the workspace preview",
-        after_palette != before_palette,
-        "the preview did not change when the palette did",
-    )
-
-    section("click to upload, and drop it anywhere")
-
-    # Start from the state that matters: no photo loaded, so the reference
-    # strip is hidden.
-    fx.execute_script("VP.reference.clear();")
-    time.sleep(0.5)
-
-    # The photo is the way into the whole pipeline. Its button used to live
-    # in the reference strip, and the strip is hidden until a photo is
-    # loaded — so before your first load there was nothing to click.
-    upload = fx.execute_script(
-        """
-        const b = document.getElementById('load-photo');
-        if (!b) return { present: false };
-        const r = b.getBoundingClientRect();
-        return {
-          present: true,
-          visible: r.width > 1 && r.height > 1 && !b.closest('[hidden]'),
-          stripHidden: document.getElementById('reference-strip').hidden,
-          text: b.textContent,
-        };
-        """
-    )
-    check("there is a button to load a photo", upload.get("present") is True, "no button")
-    check(
-        "the load button is visible before any photo is loaded",
-        upload.get("visible") is True and upload.get("stripHidden") is True,
-        str(upload),
-    )
-
-    # Clicking it must reach the file input.
-    wired = fx.execute_script(
-        """
-        const input = document.getElementById('file-image');
-        const original = HTMLInputElement.prototype.click;
-        let clicked = null;
-        HTMLInputElement.prototype.click = function () { clicked = this.id; };
-        document.getElementById('load-photo').click();
-        HTMLInputElement.prototype.click = original;
-        return clicked;
-        """
-    )
-    check("the load button opens the file picker", wired == "file-image", str(wired))
-
-    # The empty state in the workspace is a click target too.
-    fx.execute_script("VP.workspace.open();")
-    time.sleep(0.6)
-    empty = fx.execute_script(
-        """
-        const button = document.getElementById('ws-source-load');
-        return { present: !!button, text: button ? button.textContent : null };
+        var out = [];
+        [1, 4, 8, 16, 32].forEach(function (n) {
+          var b = document.getElementById('export-scale-' + n);
+          out.push([n, b.disabled, b.textContent]);
+        });
+        return out;
         """
     )
     check(
-        "the workspace empty state offers a way in",
-        empty["present"] is True,
-        str(empty),
+        "every export scale is offered on a 64x64 canvas",
+        all(not s[1] for s in scales),
+        str(scales),
     )
+    # 64 x 64 at 64x is a 4096-pixel image, which is the export's cap.
+    fx.execute_script("VP.canvas.setScale(64);")
+    time.sleep(0.2)
+    backing = fx.execute_script("return document.getElementById('art-canvas').width;")
+    check("the display backing store is capped at 4096", backing <= 4096, f"{backing} px")
 
-    # And a photo dropped ANYWHERE on the page loads — not only over the
+    section("drop it anywhere")
+
+    # A file dropped ANYWHERE on the page is brought in — not only over the
     # canvas. Releasing it over the sidebar used to do nothing at all.
-    fx.execute_script("VP.workspace.close();")
-    time.sleep(0.4)
-
     dropped = fx.execute_async_script(
         """
         const canvas = document.createElement('canvas');
@@ -1518,31 +859,18 @@ def features(fx: Marionette, base: str, shots: Path) -> None:
     )
     time.sleep(1.5)
     check(
-        "the page highlights when a photo is dragged over it",
+        "the page highlights when a file is dragged over it",
         dropped is True,
         "no highlight",
     )
+    painted = fx.execute_script(
+        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+    )
     check(
-        "a photo dropped on the sidebar loads",
-        fx.execute_script("return VP.reference.hasImage();") is True,
+        "a file dropped on the sidebar becomes the artwork",
+        painted > 0,
         fx.execute_script("return document.getElementById('alert-text').textContent;"),
     )
-    check(
-        "the drop is handled once, not twice",
-        fx.execute_script("return VP.reference.state.source.name;") == "dropped.png",
-        fx.execute_script("return VP.reference.state.source.name;"),
-    )
-
-    section("the limits on the load page")
-    note = fx.execute_script("return document.getElementById('ws-load-note').textContent;")
-    check(
-        "the load page states the limits",
-        "never uploaded" in note and "64 MB" in note and "2048" in note,
-        note,
-    )
-
-    errors = probe.errors(fx)
-    check("no JavaScript errors in the feature pass", not errors, "; ".join(errors))
 
 
 if __name__ == "__main__":

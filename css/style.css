@@ -99,7 +99,6 @@ body {
 
 .top-bar { grid-area: top; }
 .alert { grid-area: alert; }
-.reference-strip { grid-area: strip; }
 .panel-row { grid-area: panels; }
 .sidebar { grid-area: sidebar; }
 .centre { grid-area: centre; }
@@ -239,45 +238,6 @@ body {
 
 .size-btn {
   min-width: 38px;
-}
-
-/* ── The reference strip ───────────────────────────────────────────────────── */
-
-.reference-strip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: var(--strip);
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(79, 79, 255, 0.14);
-  background: rgba(79, 79, 255, 0.04);
-  overflow-x: auto;
-}
-
-.strip-name {
-  color: var(--muted);
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.strip-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.never {
-  color: var(--accent);
-  border: 1px solid var(--edge);
-  padding: 3px 7px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 /* ── Inline panels ─────────────────────────────────────────────────────────── */
@@ -648,13 +608,6 @@ input[type="color"]::-moz-color-swatch {
 }
 
 /* The X and Y size dropdowns, and the lock between them. */
-.size-field {
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .size-select {
   width: auto;
   min-width: 58px;
@@ -702,62 +655,11 @@ body.is-drop-target .art-canvas {
 
 /* The Image mode's controls are not a column of their own: they live in the
    menu, on the left, and the centre holds the photo and the canvas. */
-.ws-labelled {
-  margin-bottom: 8px;
-}
-
-.ws-note {
-  margin: 6px 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
 /* A note that sits on the same line as a readout. */
-.ws-note.inline-note {
-  margin: 0;
-  flex: 1 1 auto;
-}
-
-.ws-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.ws-row.wrap {
-  flex-wrap: wrap;
-}
-
 /* A label with its controls underneath it. Every row in the workspace is
    built this way, so the column reads the same from top to bottom — and
    a row of buttons can never be wider than the column it sits in. */
-.ws-labelled {
-  margin-bottom: 8px;
-}
-
-.ws-labelled > .panel-label {
-  display: block;
-  margin-bottom: 3px;
-}
-
-.ws-slider {
-  margin-bottom: 6px;
-}
-
 /* The range and its reset button share one line. */
-.ws-slider-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ws-slider-row input[type="range"] {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 /* A small, quiet button: it undoes one value, it is not a command. */
 .btn-reset {
   flex: 0 0 auto;
@@ -772,46 +674,6 @@ body.is-drop-target .art-canvas {
   border-color: var(--accent);
 }
 
-.ws-slider label {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 11px;
-  margin-bottom: 2px;
-}
-
-.ws-tune,
-.ws-targets {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(79, 79, 255, 0.12);
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-/* The source pane. It is a column of the centre, beside the canvas, and it
-   has its own zoom. */
-.ws-pane {
-  position: relative;
-  flex: 1 1 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid rgba(79, 79, 255, 0.14);
-  overflow: hidden;
-}
-
-.ws-pane[hidden] {
-  display: none;
-}
-
 /* The pane's own header row. The label used to float over the canvas, and
    the grid lines ran straight through the text. */
 .pane-head {
@@ -821,14 +683,6 @@ body.is-drop-target .art-canvas {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.ws-pane canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  image-rendering: pixelated;
-  touch-action: none;
 }
 
 #source-pane {
@@ -852,29 +706,8 @@ body.is-drop-target .art-canvas {
   pointer-events: none;
 }
 
-.pane-empty {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  margin: 0;
-  text-align: center;
-  color: var(--muted);
-  font-size: 12px;
-  pointer-events: none;
-}
-
-.pane-empty[hidden] {
-  display: none;
-}
-
 /* The second line of the empty state: the one thing about the pane that is
    not obvious until you try it. */
-.pane-hint {
-  font-size: 11px;
-  opacity: 0.75;
-}
-
 /* ── The bottom bar ────────────────────────────────────────────────────────── */
 
 .bottom-bar {
@@ -925,10 +758,6 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 0;
 }
 
-.strip-label input[type="range"] {
-  width: 90px;
-}
-
 /* ── The 404 page ─────────────────────────────────────────────────────────── */
 
 .notfound {
@@ -966,17 +795,6 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ── Narrower windows ──────────────────────────────────────────────────────── */
-
-@media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
-
-  .ws-stage {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-  }
-}
 
 /* The shorter the window, the fewer rows of swatches. The sidebar then
    fits without scrolling, so no control is ever cut in half by the edge.

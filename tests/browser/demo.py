@@ -3,9 +3,9 @@
 
 Drives the real app in a real Firefox and captures the screenshots that
 document it, in `docs/`. Nothing is mocked: the sprite is painted with the
-app's own painting API, and the conversion is the app's own pipeline.
+app's own painting API.
 
-    python3 tests/browser/demo.py
+    python3 tests/browser/demo.py [--base http://127.0.0.1:8790]
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ sys.path.insert(0, str(HERE))
 from marionette import Marionette  # noqa: E402
 
 ROOT = HERE.parent.parent
-IMAGES = Path("/tmp/vp-images")
 
 # A 32x32 sprite, drawn as a pixel map. 'x' is painted with the active
 # colour, '.' is left empty. It is a small robot — the kind of thing this
@@ -38,24 +37,6 @@ SPRITE = [
     ".........xwwwwwwwwx.............",
     "..........xxxxxxxx..............",
     "..........x......x..............",
-    ".........x........x.............",
-    ".........x........x.............",
-    "........xx........xx............",
-    ".......x............x...........",
-    "......x..............x..........",
-    ".....x................x.........",
-    "....x..................x........",
-    "...x....................x.......",
-    "..x......................x......",
-    "..x......................x......",
-    "...x....................x.......",
-    "....x..................x........",
-    ".....x................x.........",
-    "......x..............x..........",
-    ".......x............x...........",
-    "........xx........xx............",
-    ".........xxxxxxxxxx.............",
-    "..........x......x..............",
     "..........x......x..............",
     "..........x......x..............",
     "..........xx....xx..............",
@@ -67,10 +48,6 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://127.0.0.1:8790")
     args = parser.parse_args(argv[1:])
-
-    if not IMAGES.exists():
-        print("error: run `python3 tools/make-test-images.py /tmp/vp-images` first.")
-        return 2
 
     shots = ROOT / "docs" / "shots"
     if shots.exists():
@@ -123,43 +100,15 @@ def run(firefox: Marionette, base: str, shots: Path) -> None:
     time.sleep(0.4)
     firefox.screenshot(str(shots / "02-sprite-painted.png"))
 
-    print("• the reference underlay, tracing")
-    firefox.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-    firefox.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.4)
-    firefox.execute_script("VP.reference.setMode('under'); VP.reference.setOpacity(0.6);")
+    print("• the colour pop-over")
+    firefox.execute_script("document.getElementById('colours-toggle').click();")
     time.sleep(0.4)
-    firefox.screenshot(str(shots / "03-reference-underlay.png"))
-
-    print("• the workspace")
-    firefox.execute_script("VP.workspace.toggle();")
-    time.sleep(0.6)
-    firefox.execute_script("VP.workspace.fitSource();")
-    time.sleep(0.4)
-    firefox.screenshot(str(shots / "04-workspace.png"))
-
-    print("• the pipeline: extract, tune, convert")
-    firefox.execute_script("VP.canvas.resize(32, 32); VP.workspace.updateCellSize();")
-    firefox.execute_script("VP.workspace.extract();")
-    time.sleep(0.4)
-    firefox.execute_script("VP.workspace.applyPreset('sprite pop');")
-    time.sleep(0.4)
-    firefox.screenshot(str(shots / "05-workspace-tuned.png"))
-
-    firefox.execute_script("VP.workspace.convert();")
-    time.sleep(0.5)
-    firefox.execute_script("VP.workspace.toggle();")
-    time.sleep(0.4)
-    firefox.execute_script("VP.canvas.setScale(16);")
-    time.sleep(0.3)
-    firefox.screenshot(str(shots / "06-converted.png"))
+    firefox.screenshot(str(shots / "03-colours.png"))
 
     print("• the 404 page")
     firefox.navigate(f"{base}/nope")
     time.sleep(0.6)
-    firefox.screenshot(str(shots / "07-not-found.png"))
+    firefox.screenshot(str(shots / "04-not-found.png"))
 
 
 if __name__ == "__main__":

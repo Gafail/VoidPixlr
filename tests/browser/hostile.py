@@ -94,13 +94,15 @@ def run(fx: Marionette, base: str) -> None:
     section("a file that is not an image")
     junk = Path("/tmp/vp-not-an-image.txt")
     junk.write_text("this is not a picture", encoding="utf-8")
-    fx.set_file_input("#file-image", str(junk))
+    fx.set_file_input("#file-png", str(junk))
     fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+        "document.getElementById('file-png').dispatchEvent(new Event('change', {bubbles: true}));"
     )
     time.sleep(0.8)
-    has_image = fx.execute_script("return VP.reference.hasImage();")
-    check("a text file is not loaded as an image", has_image is False, "an image appeared")
+    painted = fx.execute_script(
+        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+    )
+    check("a text file is not loaded as artwork", painted == 0, f"{painted} cells painted")
 
     errors = probe.errors(fx)
     check("a text file raises nothing", not errors, "; ".join(errors))
@@ -108,9 +110,9 @@ def run(fx: Marionette, base: str) -> None:
     section("a PNG that is not a PNG")
     broken = Path("/tmp/vp-broken.png")
     broken.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
-    fx.set_file_input("#file-image", str(broken))
+    fx.set_file_input("#file-png", str(broken))
     fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
+        "document.getElementById('file-png').dispatchEvent(new Event('change', {bubbles: true}));"
     )
     time.sleep(1.0)
 
@@ -135,8 +137,10 @@ def run(fx: Marionette, base: str) -> None:
     time.sleep(0.3)
     dismissed = fx.execute_script("return document.getElementById('alert').hidden;")
     check("the alert can be dismissed", dismissed is True, "the alert stayed up")
-    has_image = fx.execute_script("return VP.reference.hasImage();")
-    check("a broken PNG leaves no session image", has_image is False, "an image appeared")
+    painted = fx.execute_script(
+        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
+    )
+    check("a broken PNG leaves no artwork", painted == 0, f"{painted} cells painted")
 
     errors = probe.errors(fx)
     check("a broken PNG raises nothing", not errors, "; ".join(errors))
@@ -149,6 +153,7 @@ def run(fx: Marionette, base: str) -> None:
             {"size": 999, "palette": ["#ffffff"], "pixels": []},
             {"size": 0, "palette": ["#ffffff"], "pixels": []},
             {"size": "16", "palette": ["#ffffff"], "pixels": []},
+            {"size": 128, "palette": ["#ffffff"], "pixels": []},
             {"size": 16, "palette": ["#ffffff"] * 65, "pixels": []},
             {"size": 16, "palette": ["not-a-colour"], "pixels": []},
             {"size": 16, "palette": ["#ffffff"], "pixels": [[0], [0]]},
@@ -180,20 +185,6 @@ def run(fx: Marionette, base: str) -> None:
 
     errors = probe.errors(fx)
     check("bad project files raise nothing", not errors, "; ".join(errors))
-
-    section("the workspace with no image")
-    fx.execute_script("VP.workspace.toggle();")
-    time.sleep(0.4)
-    extracted = fx.execute_script("return VP.workspace.extract();")
-    check("Extract with no image returns nothing", extracted is None, str(extracted))
-    converted = fx.execute_script("return VP.workspace.convert();")
-    check("Convert with no image returns false", converted is False, str(converted))
-    status = fx.execute_script("return document.getElementById('ws-status').textContent;")
-    check("the workspace says so", "image" in status.lower(), status)
-
-    errors = probe.errors(fx)
-    check("the empty workspace raises nothing", not errors, "; ".join(errors))
-    fx.execute_script("VP.workspace.toggle();")
 
     section("storage that throws")
     result = fx.execute_script(
@@ -256,68 +247,16 @@ def run(fx: Marionette, base: str) -> None:
         str(after),
     )
 
-    section("a second image replaces the first")
-    fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-    fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.2)
-    first = fx.execute_script("return VP.reference.state.source.name;")
-    check("the first image loads", first == "test-photo.png", first)
-
-    fx.set_file_input("#file-image", str(IMAGES / "test-grid.png"))
-    fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.2)
-    second = fx.execute_script("return VP.reference.state.source.name;")
-    dims = fx.execute_script(
-        "return [VP.reference.state.source.width, VP.reference.state.source.height];"
-    )
-    check("the second image replaces the first", second == "test-grid.png", second)
-    check("the replacement is the new image", dims == [4, 4], str(dims))
-
-    section("clearing the reference")
-    fx.execute_script("VP.reference.clear();")
-    time.sleep(0.4)
-    has_image = fx.execute_script("return VP.reference.hasImage();")
-    strip = fx.execute_script(
-        "return getComputedStyle(document.getElementById('reference-strip')).display;"
-    )
-    check("clearing releases the image", has_image is False, "the image is still there")
-    check("the strip goes away", strip == "none", f"display: {strip}")
-
-    painted = fx.execute_script(
-        "return Array.from(VP.canvas.grid).filter(function (v) { return v >= 0; }).length;"
-    )
-    check("clearing the reference leaves the art alone", painted == 2, f"{painted} cells")
-
-    section("converting twice")
-    fx.set_file_input("#file-image", str(IMAGES / "test-photo.png"))
-    fx.execute_script(
-        "document.getElementById('file-image').dispatchEvent(new Event('change', {bubbles: true}));"
-    )
-    time.sleep(1.2)
-    fx.execute_script("VP.workspace.updateCellSize();")
-    fx.execute_script("VP.workspace.extract();")
-    time.sleep(0.3)
-    fx.execute_script("VP.workspace.convert();")
-    time.sleep(0.4)
-    first_size = fx.execute_script(
-        "return VP.canvas.state.width + '×' + VP.canvas.state.height;"
-    )
-    fx.execute_script("VP.workspace.convert();")
-    time.sleep(0.4)
-    second_size = fx.execute_script(
-        "return VP.canvas.state.width + '×' + VP.canvas.state.height;"
-    )
-    check(
-        "converting twice is stable",
-        first_size == second_size,
-        f"{first_size}, {second_size}",
-    )
-
     section("undoing everything")
+    # There has to be something to undo. The photo half of the app used to
+    # load an image and push to the history on the way in; the drawing half
+    # pushes when a stroke ends. Paint one, exactly as a pointer stroke does.
+    fx.execute_script(
+        "VP.app.beginStroke();"
+        "VP.canvas.paintSymmetric(0, 0, 4);"
+        "VP.app.endStroke(true);"
+    )
+    time.sleep(0.3)
     depth = fx.execute_script("return VP.app.state.history.undoCount;")
     for _ in range(12):
         fx.execute_script(
