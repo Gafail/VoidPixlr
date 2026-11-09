@@ -1449,6 +1449,47 @@ check("there is no photo in this project", () => {
   assert(!/indexedDB/.test(read("js/storage.js")), "the app still stores a photo");
 });
 
+check("the specification describes the tool and nothing else", () => {
+  /* project.md is the source of truth. A previous revision carried the prose
+     of a larger scope that this build does not implement, and nobody noticed
+     because only the palette tables were checked against the code. This
+     check makes the drift fail loudly instead. */
+  const spec = read("project.md").toLowerCase();
+
+  const forbidden = [
+    "voidpixelatr",
+    "source pane",
+    "reference image",
+    "grid overlay",
+    "underlay",
+    "palette generator",
+    "palette extraction",
+    "dither",
+    "photo-to-pixel",
+  ];
+  for (const term of forbidden) {
+    assert(!spec.includes(term), `the specification still describes "${term}"`);
+  }
+
+  const required = [
+    "drag-paint",
+    "symmetry",
+    "undo",
+    "export png",
+    "import json",
+    "forget everything",
+    "16, 32 and 64",
+  ];
+  for (const term of required) {
+    assert(spec.includes(term), `the specification no longer mentions "${term}"`);
+  }
+
+  assert(
+    spec.includes("acceptance criteria"),
+    "the specification has no acceptance criteria section",
+  );
+});
+
 check("the canvas is square, 16, 32 or 64 pixels a side", () => {
   const markup = read("index.html");
   const app = read("js/app.js");

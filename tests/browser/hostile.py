@@ -22,7 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from marionette import Marionette  # noqa: E402
+from marionette import MARIONETTE_PORT, Marionette  # noqa: E402
 import probe  # noqa: E402
 
 ROOT = HERE.parent.parent
@@ -49,6 +49,12 @@ def section(title: str) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://127.0.0.1:8790")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=MARIONETTE_PORT,
+        help="the Marionette port — one Firefox at a time",
+    )
     args = parser.parse_args(argv[1:])
 
     # The error listener is a separate file, not an inline <script>: the
@@ -57,7 +63,7 @@ def main(argv: list[str]) -> int:
     # array and pass while measuring nothing.
     probe.install(ROOT)
 
-    firefox = Marionette()
+    firefox = Marionette(port=args.port)
     try:
         firefox.start()
         run(firefox, args.base)

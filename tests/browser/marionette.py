@@ -96,6 +96,12 @@ class Marionette:
                     'user_pref("browser.safebrowsing.downloads.enabled", false);',
                     'user_pref("browser.contentblocking.report.lockwise.enabled", false);',
                     'user_pref("network.prefetch-next", false);',
+                    # The Marionette port is a profile pref, not an environment
+                    # variable: MOZ_MARIONETTE_PORT is ignored by this build
+                    # and it falls back to 2828, which collides with any
+                    # other Firefox on the machine — including another
+                    # project's test run. The pref is the one that sticks.
+                    f'user_pref("marionette.port", {self.port});',
                     *download_prefs,
                 ]
             ),

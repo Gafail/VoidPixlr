@@ -3,8 +3,8 @@
 > A pixel-art canvas for 16, 32 and 64 px square art. Pick a palette, draw,
 > save it as a PNG. Nothing is ever uploaded.
 
-**Status:** built and tested — the r15 split build, about to be deployed
-**Domain:** none (LAN-only when it ships)
+**Status:** built, tested and deployed — the r16 build (r15 code, r16 spec)
+**Domain:** none (LAN-only)
 **Brand identity:** "A pixel canvas that earns its keep." Flat rectangles, no
 gradients, no rounded corners, no animations, no shadows except the canvas
 glow. Accent `#4f4fff` on `#0d0d0f`.
@@ -77,7 +77,7 @@ pane and the photo layer went with the pipeline.
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 98 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 99 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
@@ -151,10 +151,9 @@ separately.
   at once.
 - **The `hidden` attribute loses to `display: flex`.** The stylesheet has a
   global `[hidden] { display: none !important }` for exactly this reason.
-- **The reduced copy and the full copy are not the same thing.** That rule
-  belonged to the photo half and went with it. The one that survives here:
-  anything that renders from a full-resolution copy must call
-  `commitAdjust()` first, or it will show a stale value.
+- **The preview layer is not the art.** `previewBuffer` is a layer over the
+  artwork, drawn in the same canvas the art lives in. It is not a second
+  canvas and it is never exported.
 - **A palette change has to reach the canvas.** `renderAll()` redraws the
   menu and the bars, but the artwork is made *of* the palette. Without
   `VP.palette.hooks.remap` wired up, switching the palette leaves the art
@@ -216,6 +215,11 @@ separately.
 - **The spec's palette tables are checked against the code.** A node test
   reads `project.md` and `js/palette.js` and compares them. Change one and
   you must change the other.
+- **The spec is checked for drift too.** A node test reads `project.md` and
+  fails if it describes a feature the build does not have. A previous
+  revision carried the whole prose of a larger scope and nobody noticed,
+  because only the palette tables were checked. Do not write a section the
+  code does not implement.
 - **The storage namespace is `voidpixlr:*`.** VoidPixelatr keeps
   `voidpixelatr:*`. The two apps are served from the same origin during local
   development, so they must not share a key — one would read the other's
@@ -262,7 +266,7 @@ separately.
   and this project has already drifted once because of it.
 - **The container at `.100` belongs to this project alone.** VoidPixelatr
   has no container, no registry row and no remote.
-- Current deployed version: **v2.1 r15**, at http://192.168.100.100/.
+- Current deployed version: **v2.1 r16**, at http://192.168.100.100/.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.

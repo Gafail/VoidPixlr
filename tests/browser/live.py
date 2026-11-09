@@ -34,7 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from marionette import Marionette  # noqa: E402
+from marionette import MARIONETTE_PORT, Marionette  # noqa: E402
 
 PASSED = 0
 FAILURES: list[str] = []
@@ -57,6 +57,12 @@ def section(title: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://192.168.100.100")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=MARIONETTE_PORT,
+        help="the Marionette port — one Firefox at a time",
+    )
     args = parser.parse_args(sys.argv[1:])
 
     downloads = Path("/tmp/vp-live-downloads")
@@ -64,7 +70,7 @@ def main() -> int:
         shutil.rmtree(downloads)
     downloads.mkdir(parents=True, exist_ok=True)
 
-    firefox = Marionette()
+    firefox = Marionette(port=args.port)
     try:
         firefox.start(download_dir=str(downloads))
         firefox.set_window_rect(1500, 950)

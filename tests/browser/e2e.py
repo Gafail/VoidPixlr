@@ -34,7 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from marionette import Marionette  # noqa: E402
+from marionette import MARIONETTE_PORT, Marionette  # noqa: E402
 import probe  # noqa: E402
 
 ROOT = HERE.parent.parent
@@ -84,6 +84,12 @@ def set_canvas_size(fx: Marionette, size: int) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://127.0.0.1:8790")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=MARIONETTE_PORT,
+        help="the Marionette port — one Firefox at a time",
+    )
     parser.add_argument("--keep-shots", action="store_true")
     parser.add_argument("--shots", default=str(SHOTS))
     args = parser.parse_args(argv[1:])
@@ -116,7 +122,7 @@ def main(argv: list[str]) -> int:
     paste_image = ROOT / ".vp-test-image.png"
     shutil.copy(IMAGES / "test-photo.png", paste_image)
 
-    firefox = Marionette()
+    firefox = Marionette(port=args.port)
     firefox.download_dir = str(downloads)
     try:
         firefox.start(download_dir=str(downloads))
