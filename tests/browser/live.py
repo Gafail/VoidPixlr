@@ -26,6 +26,7 @@ What it checks:
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -58,9 +59,14 @@ def main() -> int:
     parser.add_argument("--base", default="http://192.168.100.100")
     args = parser.parse_args(sys.argv[1:])
 
+    downloads = Path("/tmp/vp-live-downloads")
+    if downloads.exists():
+        shutil.rmtree(downloads)
+    downloads.mkdir(parents=True, exist_ok=True)
+
     firefox = Marionette()
     try:
-        firefox.start()
+        firefox.start(download_dir=str(downloads))
         firefox.set_window_rect(1500, 950)
 
         section("the site loads")
@@ -156,20 +162,26 @@ def main() -> int:
         check("undo takes the paint back", remaining == 0, f"{remaining} cells left")
 
         section("the export")
-        png = firefox.execute_script(
+        result = firefox.execute_script(
             "return VP.io.exportPNG(VP.canvas.state.width, VP.canvas.state.height,"
             " VP.palette.colours(), VP.canvas.grid, 16, null);"
         )
         check(
-            "the PNG export produces an image",
-            isinstance(png, str) and png.startswith("data:image/png;base64,"),
-            f"{str(png)[:40]}",
+            "the PNG export succeeds",
+            bool(result and result.get("ok")),
+            f"{result}",
         )
-        check(
-            "the PNG export is not empty",
-            isinstance(png, str) and len(png) > 200,
-            f"{len(png) if isinstance(png, str) else 0} characters",
-        )
+        # And the file itself lands on disk, as a real PNG.
+        time.sleep(1.5)
+        pngs = list(downloads.glob("*.png"))
+        check("the PNG export writes a file", bool(pngs), f"found {list(downloads.iterdir())}")
+        if pngs:
+            head = pngs[0].read_bytes()[:8]
+            check(
+                "the exported file is a PNG",
+                head == b"\x89PNG\r\n\x1a\n",
+                f"{head!r}",
+            )
 
         section("no network requests")
         offsite = firefox.execute_script(
