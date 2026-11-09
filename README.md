@@ -28,6 +28,8 @@ save it as a PNG.
   artwork.
 - **Zoom.** 1× to 64× art-pixel scale, plus `Fit`, with a grid that can be
   switched off when it gets in the way.
+- **A support button.** The Ko-fi widget sits in the bottom bar and links to
+  the project's Ko-fi page.
 
 ## Scope
 
@@ -49,6 +51,13 @@ and nothing else.
 Your work *is* stored — on your own machine, in `localStorage`. That is a
 deliberate, documented exception to the house rule, and **Forget everything**
 wipes the lot in one click.
+
+One thing does load from elsewhere: the **Ko-fi** widget in the bottom bar. It
+is a donation button — a script, a cup image and a web font. It receives none
+of your work, and the page works exactly the same if it fails to load. What it
+does do is tell Ko-fi and Google that a browser opened this page, which on a
+LAN-only tool means they learn the visitor's local network address. That is
+the trade, and it is written down in the specification rather than hidden.
 
 ## Running it
 
@@ -77,6 +86,11 @@ The vhost in `ops/nginx/voidpixlr.conf` names `192.0.2.0` — the RFC 5737
 documentation address — as a placeholder. `deploy.sh` substitutes the real
 address when it installs the file.
 
+The site serves its own headers file, `ops/nginx/voidpixlr-headers.conf`: the
+house policy with the CSP widened by exactly the three origins the Ko-fi
+widget needs. It weakens this site only — every other site keeps the shared
+snippet.
+
 `ops/PROVISION.md` is the checklist for standing up a host: cloning the
 template, reserving the address, regenerating the SSH host keys and
 registering the host. Two of those steps need infrastructure credentials that
@@ -98,9 +112,9 @@ The browser tests drive a real Firefox over Marionette — a minimal client in
 ### Testing under the real CSP
 
 `python3 -m http.server` sends no `Content-Security-Policy`, so a suite run
-against it cannot show that the app works under the shared CSP. The
-`csp_server.py` test server fixes that: it parses the house
-`ops/nginx-snippets/security-headers.conf` and sends exactly those headers.
+against it cannot show that the app works under the policy it is served
+with. The `csp_server.py` test server fixes that: it parses the site's own
+`ops/nginx/voidpixlr-headers.conf` and sends exactly those headers.
 
 ```bash
 python3 tests/browser/csp_server.py --port 8791 &

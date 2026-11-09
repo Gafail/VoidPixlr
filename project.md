@@ -126,30 +126,60 @@ File / Blob / ClipboardItem
 
 - `fetch()` and `XMLHttpRequest` — the app calls neither, anywhere.
 - `<form>` submission, `navigator.sendBeacon`, WebSocket, `EventSource`.
-- `URL.createObjectURL` — a `blob:` URL is blocked by the shared CSP's
+- `URL.createObjectURL` — a `blob:` URL is blocked by the site's CSP's
   `img-src` anyway, so the app does not create one.
 - Any `<img src>` pointing at anything but a `data:` URL.
 - Any outbound request carrying image data — query string, header, body or
   otherwise.
 
-### 2.3 What is explicitly allowed: local persistence
+### 2.3 The one third-party script: the Ko-fi widget
+
+The page carries a **Ko-fi widget** — the same one VoidWalkr carries, the
+same official widget from `storage.ko-fi.com`. It is the only third-party
+thing this page loads.
+
+It is drawn into the bottom bar and it is a donation button. It is worth
+being exact about what it means:
+
+| | |
+|---|---|
+| **What it loads** | `https://storage.ko-fi.com/cdn/widget/Widget_2.js`, the cup image from the same host, and the Quicksand web font the widget asks Google for. |
+| **What it carries** | Nothing. It is a script and a font. It receives no artwork, no palette, no project file, no name and no identifier. |
+| **What it can see** | The page it is on — and that page holds nothing but the user's own work, which never leaves the browser. |
+| **Where the button goes** | `https://ko-fi.com/R5E3224KOP`, in a new tab. |
+| **If it fails** | The page carries on. The bootstrap checks the widget loaded before it calls it, and the whole thing is wrapped in a `try`. The canvas does not care. |
+
+**The guarantee is about transmission, and it still holds.** Nothing about
+the user's work is ever sent anywhere — not to Ko-fi, not to Google, not to
+the server. What the page *does* send is four requests to two third parties
+that say only "a browser opened this page". The access log on the server
+still contains the app's own static files and nothing else.
+
+**The cost, stated plainly.** A visitor's address and user agent reach
+Ko-fi and Google. On a public site that is unremarkable. On a LAN-only tool
+it means Ko-fi and Google learn the visitor's local network address. That is
+the trade, and it is the price of a donation button on a tool that promises
+not to talk to anyone.
+
+### 2.4 What is explicitly allowed: local persistence
 
 The guarantee is about **transmission**, not about storage. The user's
 artwork, palettes and preferences may live on their own machine, in
 `localStorage` (§9). None of it is ever sent anywhere: there is no endpoint to
 send it to, and the server keeps no copy of anything.
 
-### 2.4 What the server sees
+### 2.5 What the server sees
 
 Only the app's own static files. The nginx access log for a full session
 contains the HTML, CSS and JS requests and nothing else — no `POST`, no
 request for the imported file, no query string carrying image data.
 
-### 2.5 How it is verified
+### 2.6 How it is verified
 
 - **Devtools → Network → clear → run the whole session** → the panel shows
-  **zero requests**. A regression that introduced an upload would be caught
-  immediately, because the check is one glance at a panel.
+  **zero requests that carry the user's work**. The only off-site entries
+  are the Ko-fi widget and its font (§2.3); the browser suites allow exactly
+  those and fail on anything else.
 - The node suite reads the source and fails if `fetch`, `XMLHttpRequest`,
   `sendBeacon`, `blob:` or a form submission appears in it.
 
@@ -189,6 +219,7 @@ request for the imported file, no query string carrying image data.
 | F19 | Autosave | The current canvas, palettes and preferences persist locally and are restored on load. |
 | F20 | Forget everything | One control that wipes all local data. |
 | F21 | Drop and paste | A file dropped anywhere on the page, or pasted from the clipboard, is imported as artwork. |
+| F22 | Support button | The Ko-fi widget sits in the bottom bar and links to the project's Ko-fi page (§2.3). |
 
 ### Decision
 
@@ -255,6 +286,8 @@ space around it.
 - `Export PNG` — opens the inline export panel (scale and background).
 - `Export JSON` — writes the project file.
 - `Copy PNG` — writes the PNG to the clipboard.
+- **The Ko-fi widget** — the donation button, between the spacer and
+  `Forget everything` (§2.3).
 - `Forget everything` — one control that wipes all local data, with an inline
   two-step confirmation.
 
@@ -907,6 +940,11 @@ The aesthetic is the product.
   of accent-soft). No pulsing, no scaling.
 - The swatch grid, the eraser tile and the inline panels use the same tokens.
   No new colours.
+- **The Ko-fi widget keeps its own shape.** It is a third-party button and
+  people look for the cup; dressing it up to look like the app's own
+  controls would look broken. Its colour is the app's accent, and two house
+  rules are still enforced on it: its wiggle animation is off and its drop
+  shadow is off (§2.3).
 
 ### Decision
 
@@ -975,12 +1013,14 @@ voidpixlr/
 │   ├── history.js        ← undo/redo stacks
 │   ├── io.js             ← export/import PNG & JSON, the clipboard
 │   ├── storage.js        ← localStorage persistence
-│   └── menu.js           ← the menu sections and the colour pop-over
+│   ├── menu.js           ← the menu sections and the colour pop-over
+│   └── kofi.js           ← the Ko-fi widget bootstrap (§2.3)
 ├── serve.sh              ← local preview (python3 http.server)
 ├── deploy.sh             ← rsync + vhost install + nginx reload + smoke test
 ├── ops/
 │   ├── nginx/
-│   │   └── voidpixlr.conf ← the vhost
+│   │   ├── voidpixlr.conf      ← the vhost
+│   │   └── voidpixlr-headers.conf ← this site's own headers (§12.4)
 │   └── PROVISION.md       ← the container checklist
 ├── tests/
 │   ├── voidpixlr.test.mjs ← dependency-free logic tests (node)
@@ -1026,6 +1066,34 @@ Two consequences follow from the policy, and both are rules:
   so user images are decoded through `FileReader` → `data:` URL or read
   directly into an `ImageData` buffer.
 
+### 12.5 The site's own headers
+
+The Ko-fi widget is a third-party script (§2.3), so `script-src 'self'` will
+not load it. The site therefore serves **its own headers file**,
+`ops/nginx/voidpixlr-headers.conf`, which is the house policy with the CSP
+widened by exactly three origins:
+
+```
+script-src  + https://storage.ko-fi.com     the widget script
+style-src   + https://fonts.googleapis.com   the font the widget asks for
+font-src    + https://fonts.gstatic.com      the font files
+```
+
+Nothing else changes. `default-src`, `img-src`, `media-src`, `frame-src`
+(still empty — the widget draws a link, not an iframe) and `connect-src`
+(still `'self'` — the widget makes no XHR) are the house policy, and
+`script-src` still has **no `'unsafe-inline'`**, so the app still has no
+inline script and no inline event handlers.
+
+Two `add_header` directives for the same name in one block send *both*
+headers, and the browser enforces the stricter of the two — so the house
+snippet cannot simply be included alongside an override. The house snippet
+says so itself: *"Adjust per-site CSP as needed. Or copy and customize
+per-site."* This is that copy, and it weakens **this site only**.
+
+`tests/browser/csp_server.py` reads this same file, so the browser suites
+run under the policy nginx actually sends rather than the house default.
+
 ### Decision
 
 - **Multi-file, multi-directory.** Forced by the CSP and consistent with the
@@ -1062,7 +1130,8 @@ One container, one site.
 2. Installs `ops/nginx/voidpixlr.conf` to `/etc/nginx/sites-available/` and
    symlinks it into `sites-enabled/` — **substituting the real address for
    the `192.0.2.0` placeholder** as it installs the file.
-3. Installs the shared security-headers snippet.
+3. Installs the shared security-headers snippet, and this site's own
+   headers file (`ops/nginx/voidpixlr-headers.conf`) — see §12.5.
 4. **Disables the template's own site.** The clone inherits a base landing
    page whose vhost is also `listen 80 default_server`, and nginx refuses to
    start with two of them: `a duplicate default server for 0.0.0.0:80`. Only
@@ -1094,15 +1163,17 @@ server {
         try_files $uri $uri/ =404;
     }
 
-    include /etc/nginx/snippets/security-headers.conf;
+    include /etc/nginx/snippets/voidpixlr-headers.conf;
 
     error_page 404 /404.html;
     location = /404.html { internal; }
 }
 ```
 
-- The shared security-headers snippet applies unmodified. The app's file
-  layout (§12.2) is what makes that possible.
+- The site's own headers file applies the house policy with the Ko-fi
+  origins added (§12.5). It weakens this site only; every other site keeps
+  the shared snippet.
+- The app's file layout (§12.2) is what makes that possible.
 - A `404.html` in the house style is served for missing paths.
 - **The address below is a PLACEHOLDER: `192.0.2.0`** is the RFC 5737
   documentation range, so a checked-in config can never name a live machine.
@@ -1249,19 +1320,24 @@ The tool is done when **all** of these are true.
     depth in every palette.
 
 **The no-upload guarantee**
-23. [x] **Devtools → Network shows zero requests** during the whole session.
-    Not one `POST`, and no request for any imported file.
+23. [x] **Devtools → Network shows no request that carries the user's work.**
+    Not one `POST`, and no request for any imported file. The only off-site
+    entries are the Ko-fi widget and its font (§2.3).
 24. [x] There is no `fetch`, `XMLHttpRequest`, `sendBeacon`, `blob:` URL or
     form submission anywhere in the source.
+25. [x] The Ko-fi widget loads under the site's own CSP, draws a button
+    that links to the Ko-fi page, and the app is fully usable if it does
+    not load at all.
 
 **Quality**
-25. [x] `node tests/voidpixlr.test.mjs` passes with no dependencies.
-26. [x] The visual style matches §10 — no gradients, no rounded corners, no
-    animations, no shadows except the canvas glow.
-27. [x] `AGENTS.md` exists and is accurate.
-28. [x] A 64×64 canvas remains responsive while dragging, and a full redraw
+26. [x] `node tests/voidpixlr.test.mjs` passes with no dependencies.
+27. [x] The visual style matches §10 — no gradients, no rounded corners, no
+    animations, no shadows except the canvas glow. The Ko-fi widget keeps
+    its own shape, and its animation and shadow are off (§10.2).
+28. [x] `AGENTS.md` exists and is accurate.
+29. [x] A 64×64 canvas remains responsive while dragging, and a full redraw
     stays well under ~5 ms.
-29. [x] **The specification describes this tool.** No section of `project.md`
+30. [x] **The specification describes this tool.** No section of `project.md`
     describes a feature the build does not have.
 
 ### 16.1 How the criteria are verified
@@ -1270,7 +1346,7 @@ The build ships with four test suites, all dependency-free:
 
 | Suite | What it runs against | Checks |
 |---|---|---|
-| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 99 |
+| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 102 |
 | `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 66 |
 | `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 20 |
 | `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 15 |
@@ -1312,7 +1388,11 @@ Those are checked by reading the real source files in the node suite:
 - There is no `fetch`, no `XMLHttpRequest`, no `sendBeacon`, no `blob:` URL
   and no form submission anywhere.
 - The stylesheet has no gradient, no transition, no animation, no rounded
-  corner and exactly one shadow, the canvas glow.
+  corner and exactly one shadow, the canvas glow — the widget's own
+  animation and shadow are turned off rather than allowed.
+- The Ko-fi widget is the only third-party reference in the page, and it is
+  loaded the way the widget needs to be loaded (§2.3).
+- The site's CSP names the Ko-fi origins and nothing else (§12.5).
 - `project.md` describes this tool and nothing else — the same rule applied
   to the specification.
 
@@ -1329,6 +1409,10 @@ Those are checked by reading the real source files in the node suite:
 | **Local storage deviates from the house rule** | An approved deviation (§9.4) | Scoped, local-only, clearable. The rule that holds absolutely is the one that matters: nothing is ever transmitted. |
 | **Artwork survives on a shared machine** | Local storage means the last artwork is still there | `Forget everything` clears all of it in one click (§9.3). |
 | **An image upload creeps in** | A "helpful" future feature could add one | §2 makes it a named, tested acceptance criterion (§16) — the check is one glance at the network panel. |
+| **The Ko-fi widget takes the page down** | It is a third-party script, and third-party scripts fail | The bootstrap checks the widget loaded before calling it, and the whole call is wrapped in a `try`. The canvas does not depend on it (§2.3). |
+| **The widget's script is deferred** | `document.writeln` after the parse replaces the document | The script tag must not be deferred or async — a node check reads the markup and fails if it is (§2.3). |
+| **The visitor's address reaches a third party** | The widget and its font are fetched from Ko-fi and Google | It is the trade for a donation button, and it is written down rather than hidden (§2.3). Nothing about the user's work is ever sent. |
+| **The widget's CSS widens the policy** | A stylesheet is a request to a third party | The site's CSP names exactly the three origins the widget needs and nothing else (§12.5). |
 | **`localStorage` quota (~5 MB)** | The autosave is a few KB | Not close to the limit. Failures are silent and non-fatal. |
 | **Private/incognito mode** | `localStorage` may throw on write | Caught; the app runs without persistence. |
 | **Paste handler conflicts with text paste** | `paste` fires for text too | Only intercept when the clipboard holds an image. |

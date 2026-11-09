@@ -190,15 +190,25 @@ def main() -> int:
             )
 
         section("no network requests")
+        # The Ko-fi widget is the one third-party thing this page loads, and
+        # it is allowed to: it is a donation button, it carries none of the
+        # user's work, and the CSP names its origins. Anything else
+        # off-site is a failure.
+        allowed = (
+            "https://storage.ko-fi.com",
+            "https://fonts.googleapis.com",
+            "https://fonts.gstatic.com",
+        )
         offsite = firefox.execute_script(
             "return performance.getEntriesByType('resource')"
             ".map(e => e.name)"
             ".filter(n => !n.startsWith(location.origin));"
         )
+        unexpected = [n for n in offsite if not n.startswith(allowed)]
         check(
-            "nothing was requested from off-site",
-            not offsite,
-            f"off-site requests: {offsite}",
+            "nothing is requested off-site but the Ko-fi widget",
+            not unexpected,
+            f"off-site requests: {unexpected}",
         )
 
     finally:

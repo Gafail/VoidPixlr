@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""VoidPixlr — serve the site with the real shared security headers.
+"""VoidPixlr — serve the site with the real security headers.
 
 The browser suites normally run against `python3 -m http.server`, which
 sends no Content-Security-Policy at all. That is a weaker test than it
 looks: criterion 58 says the app "runs clean under the shared CSP", and a
 server with no CSP cannot show that.
 
-This server sends exactly the headers in the umbrella's shared snippet
-(ops/nginx-snippets/security-headers.conf), parsed out of the real file
-rather than transcribed, so it cannot drift from what nginx will send. If
-the snippet changes, this changes with it.
+This server sends exactly the headers nginx sends, parsed out of the real
+file rather than transcribed, so it cannot drift from what nginx will send.
+If the snippet changes, this changes with it.
 
     python3 tests/browser/csp_server.py [--port 8791] [--root <dir>]
 
@@ -18,8 +17,10 @@ Then point a suite at it:
     python3 tests/browser/e2e.py --base http://127.0.0.1:8791
 
 The app has no inline <script> and no inline event handlers, so
-`script-src 'self'` is enough. If the server ever reports a CSP violation
-the suites will see it as a JavaScript error, which is the point.
+`script-src 'self'` is enough for the app itself. The site's own snippet
+adds the Ko-fi origins for the widget, and nothing else. If the server ever
+reports a CSP violation the suites will see it as a JavaScript error, which
+is the point.
 """
 
 from __future__ import annotations
@@ -40,6 +41,19 @@ PROJECT_ROOT = HERE.parent.parent
 # tree first (which covers a project nested inside a monorepo), then look at
 # the siblings.
 def find_snippet() -> Path:
+    """The headers this site actually sends.
+
+    The site serves its own snippet — ops/nginx/voidpixlr-headers.conf —
+    because the Ko-fi widget needs origins the house snippet does not
+    allow. That file is what nginx sends, so it is what the suites have to
+    test against; testing against the house snippet would be testing a
+    policy the site does not run. The house snippet is the fallback, for a
+    checkout that predates the per-site file.
+    """
+    own = PROJECT_ROOT / "ops" / "nginx" / "voidpixlr-headers.conf"
+    if own.is_file():
+        return own
+
     for directory in (PROJECT_ROOT, *PROJECT_ROOT.parents):
         candidate = directory / "ops" / "nginx-snippets" / "security-headers.conf"
         if candidate.is_file():
@@ -51,7 +65,8 @@ def find_snippet() -> Path:
             return candidate
 
     raise SystemExit(
-        "error: could not find ops/nginx-snippets/security-headers.conf.\n"
+        "error: could not find ops/nginx/voidpixlr-headers.conf or "
+        "ops/nginx-snippets/security-headers.conf.\n"
         "       The umbrella normally sits next to this folder on the Desktop."
     )
 

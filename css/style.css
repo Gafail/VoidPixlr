@@ -719,6 +719,27 @@ body.is-drop-target .art-canvas {
   border-top: 1px solid rgba(79, 79, 255, 0.14);
 }
 
+/* ── The Ko-fi widget ──────────────────────────────────────────────────────── */
+
+/* The widget writes its own markup into this element, so the wrapper only
+   has to hold it. It keeps its own shape and its own colour: a third-party
+   button dressed up to look like ours would look broken, and people look
+   for the cup. */
+.kofi-wrap {
+  display: flex;
+  align-items: center;
+}
+
+/* The house has no animations and no shadows but the canvas glow, so the
+   widget's wiggle and its drop shadow are both taken off. */
+.kofi-wrap .kofiimg {
+  animation: none !important;
+}
+
+.kofi-wrap a.kofi-button {
+  box-shadow: none !important;
+}
+
 /* ── Range inputs ──────────────────────────────────────────────────────────── */
 
 input[type="range"] {

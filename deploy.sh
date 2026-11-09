@@ -134,15 +134,18 @@ say "Installing nginx configuration"
 
 "${SCP[@]}" "$REPO_ROOT/ops/nginx-snippets/security-headers.conf" \
   "$USER@$HOST:/tmp/security-headers.conf"
+"${SCP[@]}" "$SCRIPT_DIR/ops/nginx/voidpixlr-headers.conf" \
+  "$USER@$HOST:/tmp/voidpixlr-headers.conf"
 "${SCP[@]}" "$SCRIPT_DIR/ops/nginx/voidpixlr.conf" \
   "$USER@$HOST:/tmp/voidpixlr.conf"
 
 "${SSH[@]}" "$USER@$HOST" \
   "sed 's|${PLACEHOLDER_IP//./\\.}|${HOST}|g' /tmp/voidpixlr.conf > /tmp/voidpixlr.conf.new && \
    install -m 644 /tmp/security-headers.conf /etc/nginx/snippets/security-headers.conf && \
+   install -m 644 /tmp/voidpixlr-headers.conf /etc/nginx/snippets/voidpixlr-headers.conf && \
    install -m 644 /tmp/voidpixlr.conf.new /etc/nginx/sites-available/voidpixlr.conf && \
    ln -sf /etc/nginx/sites-available/voidpixlr.conf /etc/nginx/sites-enabled/voidpixlr.conf && \
-   rm -f /tmp/security-headers.conf /tmp/voidpixlr.conf /tmp/voidpixlr.conf.new"
+   rm -f /tmp/security-headers.conf /tmp/voidpixlr-headers.conf /tmp/voidpixlr.conf /tmp/voidpixlr.conf.new"
 
 # 3. One container, one site.
 #

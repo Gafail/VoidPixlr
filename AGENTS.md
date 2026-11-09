@@ -60,7 +60,11 @@ belongs in VoidPixelatr. That is the whole point of the split.
   pop-over, which floats over the canvas beside the button that opened it.
 - `js/app.js` — the bootstrap: wiring, the keyboard, drag and drop, paste,
   the inline panels, the autosave.
+- `js/kofi.js` — the Ko-fi widget bootstrap. The only third-party script the
+  page loads.
 - `ops/nginx/voidpixlr.conf` — the vhost.
+- `ops/nginx/voidpixlr-headers.conf` — this site's own headers: the house
+  policy with the CSP widened by the three origins the Ko-fi widget needs.
 - `tests/voidpixlr.test.mjs` — the dependency-free node tests.
 - `tests/browser/marionette.py` — a minimal Marionette client: a real
   Firefox, driven with no dependencies and no geckodriver.
@@ -175,9 +179,21 @@ separately.
   a second click, a click elsewhere, or Escape. A timeout turned "New" into
   a trap — click, pause, click again, and the second click armed it a
   second time instead of confirming it.
-- **Never call `URL.createObjectURL`.** The shared CSP's `img-src` has no
+- **Never call `URL.createObjectURL`.** The site's CSP `img-src` has no
   `blob:`, and the no-upload guarantee rules it out by name. Downloads go
   out as `data:` URLs.
+- **The Ko-fi widget's script tag must not be deferred or async.** The
+  widget draws itself with `document.writeln`, and a write after the parse
+  replaces the whole document — the canvas would simply be gone. The
+  bootstrap is a separate file so the page needs no inline script, and the
+  node suite checks the tag has neither attribute.
+- **The site serves its own headers, not the shared snippet.** Two
+  `add_header` directives for the same name in one block send both headers
+  and the browser enforces the stricter one, so the house snippet cannot be
+  included alongside an override. `ops/nginx/voidpixlr-headers.conf` is the
+  house policy with the CSP widened by exactly the Ko-fi origins. It
+  weakens this site only. `csp_server.py` reads that same file, so the
+  suites test the policy nginx really sends.
 - **The display canvas is capped at 4096 device pixels a side.** A 64×64
   canvas at 64× on a HiDPI screen would otherwise ask for 268 MB.
 - **`VP.canvas.grid` is a getter onto `VP.canvas.state.grid`.** It was a
@@ -277,3 +293,7 @@ separately.
 - The house rule this project breaks, on purpose: **no storage on the
   site**. The user's palettes and artwork live on their own machine, and one
   button forgets all of it. See §9.4 of `project.md`.
+- The second house rule it bends, on purpose: **no third-party assets**. The
+  Ko-fi widget is the one exception — a script, a cup image and a web font.
+  It carries none of the user's work, and the site's CSP names exactly the
+  origins it needs. See §2.3 of `project.md`.

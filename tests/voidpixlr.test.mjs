@@ -785,13 +785,91 @@ check("no blob URL is created", () => {
   assert(!/blob:/.test(allJs), "a blob: URL appears in the code");
 });
 
-check("no third-party asset, font or script is referenced", () => {
-  /* The SVG namespace is not a request — strip it before looking for URLs. */
+check("the app itself references no third-party asset, font or script", () => {
+  /* The SVG namespace is not a request — strip it before looking for URLs.
+     The one third-party thing this page loads is the Ko-fi widget, and it
+     is allowed to be: it is a donation button, it carries none of the
+     user's work, and the CSP names its origins. Nothing else is. */
+  const widget = "https://storage.ko-fi.com/cdn/widget/Widget_2.js";
   const bare = html.replace(/xmlns=("[^"]*"|'[^']*')/g, "");
-  assert(!/https?:\/\//.test(bare), "an external URL in the page");
+  const stripped = bare.split(widget).join("");
+  assert(!/https?:\/\//.test(stripped), "an external URL in the page");
   assert(!/@import/.test(css), "a CSS import");
-  assert(!/fonts\.googleapis|cdn\.|unpkg|jsdelivr/i.test(html + css), "a CDN reference");
+  assert(
+    !/fonts\.googleapis|cdn\.|unpkg|jsdelivr/i.test(stripped + css),
+    "a CDN reference",
+  );
+  assert(html.includes(widget), "the Ko-fi widget is not loaded");
 });
+
+check("the Ko-fi widget is loaded the way the widget needs to be", () => {
+  /* The widget draws itself with document.writeln. If its script were
+     deferred, that write would land after the parse and replace the whole
+     document — the canvas would simply be gone. So the tag must not be
+     deferred, and the bootstrap must run after the widget defines it. */
+  assert(exists("js/kofi.js"), "js/kofi.js is missing");
+  const bootstrap = read("js/kofi.js");
+
+  const tag = html.match(
+    /<script[^>]*src="https:\/\/storage\.ko-fi\.com[^"]*"[^>]*>/i,
+  );
+  assert(tag, "the widget script tag is missing");
+  assert(
+    !/defer/i.test(tag[0]),
+    "the widget script is deferred — document.writeln after the parse replaces the document",
+  );
+  assert(
+    !/async/i.test(tag[0]),
+    "the widget script is async — the bootstrap could run before the widget exists",
+  );
+
+  assert(bootstrap.includes("kofiwidget2"), "the bootstrap does not use the widget");
+  assert(
+    /kofiwidget2\.init\([^)]*\)/.test(bootstrap),
+    "the bootstrap does not initialise the widget",
+  );
+  assert(bootstrap.includes("kofiwidget2.draw()"), "the widget is never drawn");
+  assert(
+    /if\s*\(!window\.kofiwidget2/.test(bootstrap),
+    "the bootstrap does not check that the widget loaded",
+  );
+  assert(bootstrap.includes("try"), "the bootstrap does not guard the widget");
+});
+
+check("the Ko-fi widget is loaded the way the widget needs to be", () => {
+  /* The widget draws itself with document.writeln. If its script were
+     deferred, that write would land after the parse and replace the whole
+     document — the canvas would simply be gone. So the tag must not be
+     deferred, and the bootstrap must run after the widget defines it. */
+  assert(exists("js/kofi.js"), "js/kofi.js is missing");
+  const bootstrap = read("js/kofi.js");
+
+  const tag = html.match(
+    /<script[^>]*src="https:\/\/storage\.ko-fi\.com[^"]*"[^>]*>/i,
+  );
+  assert(tag, "the widget script tag is missing");
+  assert(
+    !/defer/i.test(tag[0]),
+    "the widget script is deferred — document.writeln after the parse replaces the document",
+  );
+  assert(
+    !/async/i.test(tag[0]),
+    "the widget script is async — the bootstrap could run before the widget exists",
+  );
+
+  assert(bootstrap.includes("kofiwidget2"), "the bootstrap does not use the widget");
+  assert(
+    /kofiwidget2\.init\([^)]*\)/.test(bootstrap),
+    "the bootstrap does not initialise the widget",
+  );
+  assert(bootstrap.includes("kofiwidget2.draw()"), "the widget is never drawn");
+  assert(
+    /if\s*\(!window\.kofiwidget2/.test(bootstrap),
+    "the bootstrap does not check that the widget loaded",
+  );
+  assert(bootstrap.includes("try"), "the bootstrap does not guard the widget");
+});
+
 
 check("there is no inline script and no inline event handler", () => {
   const inlineScripts = html.match(/<script(?![^>]*\bsrc=)[^>]*>/gi) || [];
@@ -811,7 +889,10 @@ check("the aesthetic holds: no gradients, transitions, animations or radius", ()
   const bare = stripCssComments(css);
   assert(!/gradient/i.test(bare), "a gradient");
   assert(!/transition/i.test(bare), "a transition");
-  assert(!/animation/i.test(bare), "an animation");
+  const animations = [...bare.matchAll(/animation:\s*([^;]+);/g)].map((m) => m[1].trim());
+  for (const value of animations) {
+    assert(/^none/i.test(value), `an animation: ${value}`);
+  }
   const radii = [...bare.matchAll(/border-radius:\s*([^;]+);/g)].map((m) => m[1].trim());
   for (const radius of radii) {
     assert(/^0(px)?$/.test(radius), `a rounded corner: ${radius}`);
@@ -821,8 +902,9 @@ check("the aesthetic holds: no gradients, transitions, animations or radius", ()
 check("the only shadow is the canvas glow", () => {
   const bare = stripCssComments(css);
   const shadows = [...bare.matchAll(/box-shadow:\s*([^;]+);/g)].map((m) => m[1].trim());
-  assertEqual(shadows.length, 1, `expected one shadow, found ${shadows.length}`);
-  assert(shadows[0].includes("12px"), "the shadow is not the canvas glow");
+  const real = shadows.filter((s) => !/^none/i.test(s));
+  assertEqual(real.length, 1, `expected one shadow, found ${real.length}`);
+  assert(real[0].includes("12px"), "the shadow is not the canvas glow");
 });
 
 check("the page references every script it needs, and nothing missing", () => {
@@ -918,6 +1000,40 @@ check("the deploy uses the shared house key, not one of its own", () => {
   );
 });
 
+check("the vhost includes this site's own security headers", () => {
+  assert(
+    vhost.includes("include /etc/nginx/snippets/voidpixlr-headers.conf;"),
+    "the vhost does not include the site's headers",
+  );
+  assert(
+    !vhost.includes("include /etc/nginx/snippets/security-headers.conf;"),
+    "the vhost includes the house snippet too — two Content-Security-Policy headers are both sent, and the browser enforces the stricter one",
+  );
+
+  /* The per-site file is the house policy with the CSP widened by exactly
+     the Ko-fi origins. Anything wider is a hole nobody asked for. */
+  const headers = read("ops/nginx/voidpixlr-headers.conf")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("#"))
+    .join("\n");
+  assert(
+    headers.includes("script-src 'self' https://storage.ko-fi.com;"),
+    "script-src does not name the widget origin, or names more than it",
+  );
+  assert(
+    !/script-src[^;]*unsafe-inline/.test(headers),
+    "script-src allows inline scripts",
+  );
+  assert(
+    headers.includes("frame-src;"),
+    "frame-src is not empty — the widget draws a link, not an iframe",
+  );
+  assert(
+    headers.includes("connect-src 'self';"),
+    "connect-src is wider than it needs to be",
+  );
+});
+
 check("the deploy disables the template's own site before enabling ours", () => {
   assert(
     /find \/etc\/nginx\/sites-enabled .*! -name 'voidpixlr\.conf'/.test(deploy),
@@ -929,10 +1045,14 @@ check("the deploy disables the template's own site before enabling ours", () => 
   );
 });
 
-check("the vhost includes the shared security headers unmodified", () => {
+check("the deploy installs the site's own headers", () => {
   assert(
-    vhost.includes("include /etc/nginx/snippets/security-headers.conf;"),
-    "the vhost does not include the shared snippet",
+    deploy.includes("voidpixlr-headers.conf"),
+    "the deploy does not install the site's headers file",
+  );
+  assert(
+    deploy.includes("install -m 644 /tmp/voidpixlr-headers.conf"),
+    "the deploy does not put the headers where the vhost expects them",
   );
 });
 
@@ -981,11 +1101,11 @@ check("the browser suites load the error probe as a file, not inline", () => {
   }
 });
 
-check("the CSP test server sends the real shared headers", () => {
+check("the CSP test server sends the headers this site really sends", () => {
   const server = read("tests/browser/csp_server.py");
   assert(
-    server.includes("security-headers.conf"),
-    "the CSP server does not read the shared snippet",
+    server.includes("voidpixlr-headers.conf"),
+    "the CSP server does not read the site's own headers",
   );
   assert(
     server.includes("Content-Security-Policy"),

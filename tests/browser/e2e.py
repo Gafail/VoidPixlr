@@ -403,10 +403,22 @@ def run(fx: Marionette, base: str, shots: Path, downloads: Path) -> None:
     resources = fx.execute_script(
         "return performance.getEntriesByType('resource').map(function (e) { return e.name; });"
     )
+    # The Ko-fi widget is the one third-party thing this page loads, and it
+    # is allowed to: it is a donation button, it carries none of the user's
+    # work, and the CSP names its origins. Anything else off-site is a
+    # failure.
+    allowed = (
+        "https://storage.ko-fi.com",
+        "https://fonts.googleapis.com",
+        "https://fonts.gstatic.com",
+    )
     offsite = [
         name
         for name in resources
-        if not name.startswith(base) and not name.startswith("data:") and not name.startswith("blob:")
+        if not name.startswith(base)
+        and not name.startswith("data:")
+        and not name.startswith("blob:")
+        and not name.startswith(allowed)
     ]
     check(
         "the pipeline made no network request",
