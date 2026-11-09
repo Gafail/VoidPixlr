@@ -8,7 +8,8 @@ server with no CSP cannot show that.
 
 This server sends exactly the headers nginx sends, parsed out of the real
 file rather than transcribed, so it cannot drift from what nginx will send.
-If the snippet changes, this changes with it.
+If the snippet changes, this changes with it. It serves the webroot —
+`site/` — which is exactly what nginx serves.
 
     python3 tests/browser/csp_server.py [--port 8791] [--root <dir>]
 
@@ -35,6 +36,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
+# The webroot. The server hands out the site's own files, exactly as nginx
+# does — the toolchain around them is not part of the site.
+SITE_ROOT = PROJECT_ROOT / "site"
 
 # Where the umbrella keeps the shared snippet. This project is standalone: the
 # umbrella is a SIBLING of it on the Desktop, not an ancestor. So walk up the
@@ -109,7 +113,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8791)
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--root", default=str(PROJECT_ROOT))
+    parser.add_argument("--root", default=str(SITE_ROOT))
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 

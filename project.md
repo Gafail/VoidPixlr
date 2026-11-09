@@ -19,6 +19,16 @@ larger tool and are not part of this document.
 
 > **Revision log**
 >
+> - **r17 (2026-11-10)** — **the tree is rebuilt around one idea: `site/` is
+>   the site.** The webroot — the page, the stylesheet, the nine modules and
+>   the 404 page — now lives in `site/`, and the deploy copies that one
+>   directory and nothing else. There is no exclusion list left to get
+>   wrong, and the local preview serves the same bytes nginx serves. The
+>   one-off debugging scripts are gone, the documentation screenshots were
+>   regenerated from the current build, and a node check now walks the
+>   webroot and fails if it holds a file nothing references. **The site's
+>   own files did not change** — the deployed webroot is the same twelve
+>   files it was before.
 > - **r16 (2026-11-09)** — **the specification rewritten to cover the drawing
 >   tool only.** The previous revision carried the prose of an earlier, larger
 >   scope that this build does not implement. Every section below now
@@ -89,7 +99,7 @@ and nothing else. The grid is the artwork.
 
 - **Product name:** VoidPixlr (matches the `voidpixlr` folder and the file
   naming convention).
-- **Version:** 2.1 (revision r16).
+- **Version:** 2.1 (revision r17).
 - **Target user:** Anyone drawing pixel art in a browser, from 10-minute
   doodles to serious sprite work.
 - **Non-goals:** Animation, a layer system, collaboration, cloud sync,
@@ -1001,34 +1011,50 @@ The aesthetic is the product.
 
 ```
 voidpixlr/
-├── index.html            ← markup only, no inline script
-├── css/
-│   └── style.css         ← all styles, all tokens
-├── js/
-│   ├── app.js            ← bootstrap, wiring, keyboard, drag/drop, paste
-│   ├── canvas.js         ← buffers, compositing, pointer handling, zoom
-│   ├── palette.js        ← palette model, colour editing, remap
-│   ├── quantise.js       ← pure algorithms: colour maths, nearest-colour
-│   │                        matching, the grid serialiser
-│   ├── history.js        ← undo/redo stacks
-│   ├── io.js             ← export/import PNG & JSON, the clipboard
-│   ├── storage.js        ← localStorage persistence
-│   ├── menu.js           ← the menu sections and the colour pop-over
-│   └── kofi.js           ← the Ko-fi widget bootstrap (§2.3)
-├── serve.sh              ← local preview (python3 http.server)
-├── deploy.sh             ← rsync + vhost install + nginx reload + smoke test
+├── site/                     ← the webroot. Exactly what is deployed.
+│   ├── index.html            ← markup only, no inline script
+│   ├── 404.html              ← the house 404 page nginx serves
+│   ├── css/
+│   │   └── style.css         ← all styles, all tokens
+│   └── js/
+│       ├── app.js            ← bootstrap, wiring, keyboard, drag/drop, paste
+│       ├── canvas.js         ← buffers, compositing, pointer handling, zoom
+│       ├── palette.js        ← palette model, colour editing, remap
+│       ├── quantise.js       ← pure algorithms: colour maths, nearest-colour
+│       │                        matching, the grid serialiser
+│       ├── history.js        ← undo/redo stacks
+│       ├── io.js             ← export/import PNG & JSON, the clipboard
+│       ├── storage.js        ← localStorage persistence
+│       ├── menu.js           ← the menu sections and the colour pop-over
+│       └── kofi.js           ← the Ko-fi widget bootstrap (§2.3)
 ├── ops/
 │   ├── nginx/
 │   │   ├── voidpixlr.conf      ← the vhost
-│   │   └── voidpixlr-headers.conf ← this site's own headers (§12.4)
-│   └── PROVISION.md       ← the container checklist
+│   │   └── voidpixlr-headers.conf ← this site's own headers (§12.5)
+│   └── PROVISION.md           ← the container checklist
 ├── tests/
-│   ├── voidpixlr.test.mjs ← dependency-free logic tests (node)
-│   └── browser/          ← the Firefox suites, driven over Marionette
+│   ├── voidpixlr.test.mjs     ← dependency-free logic tests (node)
+│   └── browser/                ← the Firefox suites, driven over Marionette
 ├── tools/
-│   └── make-test-images.py ← writes the test fixtures (stdlib only)
-└── project.md            ← this file
+│   └── make-test-images.py    ← writes the test fixtures (stdlib only)
+├── docs/
+│   └── shots/                 ← the screenshots the README uses
+├── serve.sh                   ← local preview (python3 http.server)
+├── deploy.sh                  ← rsync + vhost install + nginx reload + smoke test
+├── README.md                  ← the front door
+├── AGENTS.md                  ← the handoff document
+├── project.md                 ← this file
+└── project-v1.0.md            ← the archived v1.0 specification
 ```
+
+**`site/` is the site.** Twelve files: the page, the 404 page, the stylesheet
+and the nine modules. It is the directory the deploy copies and the directory
+the local preview serves, so what runs in development and what runs in
+production are the same bytes — and there is no exclusion list in the deploy
+that could be got wrong and ship the tests to a public box.
+
+A node check walks `site/` and compares it with what the markup references:
+**the webroot holds exactly the files the site needs, and not one more.**
 
 - `quantise.js` is deliberately **pure** — no DOM, no globals beyond its
   namespace. It is the algorithm layer: colour conversion, nearest-neighbour
@@ -1125,8 +1151,9 @@ One container, one site.
 
 `./deploy.sh <ip>`:
 
-1. rsyncs the source tree to `/var/www/voidpixlr/` on the box (`--delete`,
-   excluding `.git`, `ops/`, `tests/`, `tools/`, `*.md`).
+1. rsyncs `site/` — the webroot — to `/var/www/voidpixlr/` on the box
+   (`--delete`). Nothing else is copied: the directory holds only what the
+   site is made of, so there is no exclusion list to get wrong (§12.2).
 2. Installs `ops/nginx/voidpixlr.conf` to `/etc/nginx/sites-available/` and
    symlinks it into `sites-enabled/` — **substituting the real address for
    the `192.0.2.0` placeholder** as it installs the file.
@@ -1346,7 +1373,7 @@ The build ships with four test suites, all dependency-free:
 
 | Suite | What it runs against | Checks |
 |---|---|---|
-| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 102 |
+| `node tests/voidpixlr.test.mjs` | the pure algorithm layer, the models, and the house rules read out of the real source files | 103 |
 | `python3 tests/browser/e2e.py` | the real app in a real Firefox, driven over Marionette | 66 |
 | `python3 tests/browser/hostile.py` | the real app, fed the things that should not work | 20 |
 | `python3 tests/browser/live.py` | the **deployed** site, over the real CSP | 15 |

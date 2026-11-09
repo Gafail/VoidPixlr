@@ -19,7 +19,7 @@
    index.html, so the markup and the code cannot drift apart silently.
    ========================================================================== */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -27,8 +27,15 @@ import vm from "node:vm";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 
+/* The site's own files live under site/ — that directory is the webroot, and
+   it is exactly what is deployed. Everything else in the project (the tests,
+   the tools, the ops files, the documents) is the toolchain around it. */
+const SITE = "site";
+
 const read = (...parts) => readFileSync(join(ROOT, ...parts), "utf8");
 const exists = (...parts) => existsSync(join(ROOT, ...parts));
+const readSite = (...parts) => read(SITE, ...parts);
+const existsSite = (...parts) => exists(SITE, ...parts);
 
 /* --- the runner ------------------------------------------------------------ */
 
@@ -73,7 +80,7 @@ function assertDeep(actual, expected, message) {
 /* --- load the real source into a sandbox ----------------------------------- */
 
 function loadScript(source, sandbox) {
-  vm.runInContext(read("js", source), sandbox, { filename: source });
+  vm.runInContext(read(SITE, "js", source), sandbox, { filename: source });
 }
 
 const sandbox = {
@@ -732,6 +739,8 @@ check("a write that throws is swallowed", () => {
 
 console.log("\nhouse rules");
 
+/* The names in JS_FILES are the ones the markup uses, because those are what
+   the checks compare against; readSite() adds the directory. */
 const JS_FILES = [
   "js/quantise.js",
   "js/palette.js",
@@ -743,8 +752,8 @@ const JS_FILES = [
   "js/app.js",
 ];
 
-const html = read("index.html");
-const css = read("css/style.css");
+const html = readSite("index.html");
+const css = readSite("css/style.css");
 
 /* Strips comments so a mention of an API in prose is not a false positive. */
 function stripJsComments(source) {
@@ -757,7 +766,7 @@ function stripCssComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ");
 }
 
-const allJs = JS_FILES.map((file) => stripJsComments(read(file))).join("\n");
+const allJs = JS_FILES.map((file) => stripJsComments(readSite(file))).join("\n");
 
 check("there is no fetch, XHR, beacon or websocket anywhere", () => {
   const forbidden = [
@@ -807,8 +816,8 @@ check("the Ko-fi widget is loaded the way the widget needs to be", () => {
      deferred, that write would land after the parse and replace the whole
      document — the canvas would simply be gone. So the tag must not be
      deferred, and the bootstrap must run after the widget defines it. */
-  assert(exists("js/kofi.js"), "js/kofi.js is missing");
-  const bootstrap = read("js/kofi.js");
+  assert(existsSite("js/kofi.js"), "js/kofi.js is missing");
+  const bootstrap = readSite("js/kofi.js");
 
   const tag = html.match(
     /<script[^>]*src="https:\/\/storage\.ko-fi\.com[^"]*"[^>]*>/i,
@@ -841,8 +850,8 @@ check("the Ko-fi widget is loaded the way the widget needs to be", () => {
      deferred, that write would land after the parse and replace the whole
      document — the canvas would simply be gone. So the tag must not be
      deferred, and the bootstrap must run after the widget defines it. */
-  assert(exists("js/kofi.js"), "js/kofi.js is missing");
-  const bootstrap = read("js/kofi.js");
+  assert(existsSite("js/kofi.js"), "js/kofi.js is missing");
+  const bootstrap = readSite("js/kofi.js");
 
   const tag = html.match(
     /<script[^>]*src="https:\/\/storage\.ko-fi\.com[^"]*"[^>]*>/i,
@@ -927,7 +936,7 @@ check("every id the code reaches for exists in the markup", () => {
   const wanted = new Set();
 
   for (const file of JS_FILES) {
-    const source = read(file);
+    const source = readSite(file);
     for (const match of source.matchAll(/getElementById\(\s*"([^"]+)"\s*\)/g)) {
       wanted.add(match[1]);
     }
@@ -1056,19 +1065,54 @@ check("the deploy installs the site's own headers", () => {
   );
 });
 
-check("the deploy ships the site and nothing else", () => {
-  for (const excluded of [
-    "/docs/",
-    "/tests/",
-    "/tools/",
-    "/ops/",
-    "*.md",
-    "/serve.sh",
-    "/deploy.sh",
-  ]) {
-    assert(deploy.includes(`'${excluded}'`), `the deploy does not exclude ${excluded}`);
-  }
+check("the deploy ships the webroot and nothing else", () => {
+  /* The guarantee is structural now: site/ is the webroot, and it holds
+     only what the page needs (the next check proves that). So the deploy
+     has no exclusion list to get wrong. */
+  assert(
+    deploy.includes('"$SCRIPT_DIR/site/"'),
+    "the deploy does not ship the webroot",
+  );
+  assert(
+    !deploy.includes("--exclude"),
+    "the deploy still carries an exclusion list — the webroot makes one unnecessary",
+  );
   assert(deploy.includes("--delete"), "the deploy does not remove stale files");
+});
+
+check("the webroot holds exactly the files the site needs", () => {
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(join(ROOT, SITE, dir), { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        walk(`${dir}/${entry.name}`);
+        continue;
+      }
+      const rel = `${dir}/${entry.name}`.replace(/^\//, "");
+      /* The browser suites write these into the webroot while they run. */
+      if (rel.startsWith(".vp-")) continue;
+      files.push(rel);
+    }
+  };
+  walk("");
+
+  /* Everything the page references, plus the two files nginx serves without
+     a reference: the entry point and the 404 page. */
+  const needed = new Set(["index.html", "404.html"]);
+  for (const match of html.matchAll(/(?:src|href)="([^"]+)"/g)) {
+    const ref = match[1];
+    if (ref.startsWith("data:") || ref.startsWith("https://")) continue;
+    needed.add(ref);
+  }
+
+  assertEqual(
+    files.length,
+    needed.size,
+    `the webroot holds ${files.length} files, the site needs ${needed.size}`,
+  );
+  for (const file of files) {
+    assert(needed.has(file), `${file} is in the webroot but nothing references it`);
+  }
 });
 
 /* --- the browser harness --------------------------------------------------- */
@@ -1123,8 +1167,8 @@ check("the CSP test server sends the headers this site really sends", () => {
 
 
 check("there is one menu, on the left, and it drops open", () => {
-  const markup = read("index.html");
-  const menu = read("js/menu.js");
+  const markup = readSite("index.html");
+  const menu = readSite("js/menu.js");
 
   /* One column of controls, on the left. The Image mode used to bring a
      second one beside it, and both were open at once. */
@@ -1152,7 +1196,7 @@ check("there is one menu, on the left, and it drops open", () => {
     "no section says whether it is open",
   );
   assert(
-    /menu-head\[aria-expanded="false"\] \+ \.menu-body/.test(read("css/style.css")),
+    /menu-head\[aria-expanded="false"\] \+ \.menu-body/.test(readSite("css/style.css")),
     "a shut section still shows its body",
   );
   assert(
@@ -1255,7 +1299,7 @@ check("the spec's palette tables match the build", () => {
      the code, the spec stops being the source of truth — so they are
      checked, not trusted. */
   const spec = read("project.md");
-  const source = read("js/palette.js");
+  const source = readSite("js/palette.js");
 
   const block = source.slice(
     source.indexOf("const VOID_16"),
@@ -1281,7 +1325,7 @@ check("the spec's palette tables match the build", () => {
 
 
 check("a failed load is reported where the user can see it", () => {
-  const source = read("js/app.js");
+  const source = readSite("js/app.js");
   assert(source.includes("function showError"), "there is no showError helper");
   assert(
     source.includes('const bar = $("alert")'),
@@ -1300,8 +1344,8 @@ check("the alert bar exists in the markup", () => {
 });
 
 check("the zoom follows the canvas size", () => {
-  const canvas = read("js/canvas.js");
-  const app = read("js/app.js");
+  const canvas = readSite("js/canvas.js");
+  const app = readSite("js/app.js");
   assert(
     canvas.includes("C.scaleForSize"),
     "there is no scaleForSize — the zoom cannot follow the canvas",
@@ -1317,7 +1361,7 @@ check("the zoom follows the canvas size", () => {
 });
 
 check("the zoom always lands on a step", () => {
-  const canvas = read("js/canvas.js");
+  const canvas = readSite("js/canvas.js");
   assert(
     /const SCALES = \[1, 2, 4, 8, 16, 32, 64\]/.test(canvas),
     "the zoom steps are not defined",
@@ -1340,7 +1384,7 @@ check("the zoom always lands on a step", () => {
 });
 
 check("the menu never cuts a control", () => {
-  const css = read("css/style.css");
+  const css = readSite("css/style.css");
   /* The swatch grid's height is set by a media query, never by a flex
      shrink: a shrink could take it to nothing, and a grid that collapses
      leaves the sections on top of each other. */
@@ -1369,7 +1413,7 @@ check("the menu never cuts a control", () => {
     /\.popover[\s\S]{0,200}position: fixed/.test(css),
     "the colour pop-over is not fixed — the menu's overflow will clip it",
   );
-  const menu = read("js/menu.js");
+  const menu = readSite("js/menu.js");
   assert(
     /function place\(\)[\s\S]{0,900}getBoundingClientRect/.test(menu),
     "the pop-over is not positioned from the button that opened it",
@@ -1378,7 +1422,7 @@ check("the menu never cuts a control", () => {
 
 check("the menu is one scrolling column", () => {
   assert(html.includes('class="menu"'), "the menu has no scrolling column");
-  const css = read("css/style.css");
+  const css = readSite("css/style.css");
   assert(
     /\.menu[\s\S]{0,200}overflow-y: auto/.test(css),
     "the menu does not scroll",
@@ -1391,7 +1435,7 @@ check("the menu is one scrolling column", () => {
 
 check("the pane labels are headers, not overlays on the image", () => {
   assert(html.includes('class="pane-head"'), "the panes have no header row");
-  const css = read("css/style.css");
+  const css = readSite("css/style.css");
   /* Look only inside the .pane-label rule itself — the rule after it is
      .pane-empty, which is meant to be an overlay. */
   const rule = /\.pane-label\s*\{([^}]*)\}/.exec(css);
@@ -1434,7 +1478,7 @@ check("an ImageData is never handed to drawImage", () => {
        "Argument 1 could not be converted to any of: ..."
      So the conversion is centralised in toDrawable, and drawToImageData is the
      one place that draws. */
-  const io = read("js/io.js");
+  const io = readSite("js/io.js");
   assert(
     io.includes("function imageDataCanvas("),
     "there is no imageDataCanvas — an ImageData can still reach drawImage",
@@ -1452,7 +1496,7 @@ check("an ImageData is never handed to drawImage", () => {
   /* And nothing else hands one over raw: only the first argument of
      drawImage is the source, so only that one is checked. */
   for (const file of JS_FILES) {
-    const source = read(file);
+    const source = readSite(file);
     const bad = [...source.matchAll(/drawImage\(\s*([^,)]*)/g)].filter((m) =>
       /imageData|\bdata\b/.test(m[1]),
     );
@@ -1464,7 +1508,7 @@ check("an ImageData is never handed to drawImage", () => {
 /* --- the sliders and the page that has to keep up ------------------------- */
 
 check("every slider has a reset button", () => {
-  const markup = read("index.html");
+  const markup = readSite("index.html");
 
   /* Every range input in the app. */
   const sliders = [...markup.matchAll(/<input type="range" id="([^"]+)"/g)].map(
@@ -1482,7 +1526,7 @@ check("every slider has a reset button", () => {
 });
 
 check("the canvas zoom slider is driven the same way a hand-made change is", () => {
-  const app = read("js/app.js");
+  const app = readSite("js/app.js");
   assert(
     /zoomSlider\.addEventListener\("input"/.test(app),
     "the zoom slider is not driven by its own events",
@@ -1496,7 +1540,7 @@ check("a confirmation does not expire on a timer", () => {
   /* The expiry made "New" a trap: click it, read the label, look away for
      a moment, click again — and the second click armed it a second time
      instead of confirming it, so the canvas never cleared. */
-  const app = read("js/app.js");
+  const app = readSite("js/app.js");
   const arm = app.slice(app.indexOf("function armConfirm("));
   const body = arm.slice(0, arm.indexOf("\n  }"));
   assert(
@@ -1518,7 +1562,7 @@ check("a confirmation does not expire on a timer", () => {
 check("a file can be dropped anywhere on the page", () => {
   /* Releasing a file over the sidebar, the top bar or the bottom bar did
      nothing at all. The drop handler now lives on the document. */
-  const app = read("js/app.js");
+  const app = readSite("js/app.js");
   const bind = app.slice(app.indexOf("function bindDragAndDrop("));
   const body = bind.slice(0, bind.indexOf("\n  }"));
 
@@ -1539,7 +1583,7 @@ check("a file can be dropped anywhere on the page", () => {
 });
 
 check("the drop only accepts files", () => {
-  const app = read("js/app.js");
+  const app = readSite("js/app.js");
   assert(
     app.includes("function dragHasFiles("),
     "the drag handler does not check that the drag carries files",
@@ -1555,10 +1599,10 @@ check("the drop only accepts files", () => {
 check("there is no photo in this project", () => {
   /* The photo half is a separate project — VoidPixelatr. Nothing of it is
      left here, and nothing here may reach for it. */
-  const markup = read("index.html");
-  const app = read("js/app.js");
+  const markup = readSite("index.html");
+  const app = readSite("js/app.js");
 
-  for (const file of ["js/workspace.js", "js/reference.js"]) {
+  for (const file of ["site/js/workspace.js", "site/js/reference.js"]) {
     assert(!exists(file), `${file} is still here`);
   }
   assert(!markup.includes('id="file-image"'), "the page still offers a photo input");
@@ -1566,7 +1610,7 @@ check("there is no photo in this project", () => {
   assert(!markup.includes("reference"), "the page still has a reference layer");
   assert(!/VP\.reference/.test(app), "the app still reaches for the reference layer");
   assert(!/VP\.workspace/.test(app), "the app still reaches for the workspace");
-  assert(!/indexedDB/.test(read("js/storage.js")), "the app still stores a photo");
+  assert(!/indexedDB/.test(readSite("js/storage.js")), "the app still stores a photo");
 });
 
 check("the specification describes the tool and nothing else", () => {
@@ -1611,9 +1655,9 @@ check("the specification describes the tool and nothing else", () => {
 });
 
 check("the canvas is square, 16, 32 or 64 pixels a side", () => {
-  const markup = read("index.html");
-  const app = read("js/app.js");
-  const quantise = read("js/quantise.js");
+  const markup = readSite("index.html");
+  const app = readSite("js/app.js");
+  const quantise = readSite("js/quantise.js");
 
   /* One dropdown, not two: the canvas is square. */
   assert(markup.includes('id="size"'), "there is no size dropdown");
@@ -1630,8 +1674,8 @@ check("the canvas is square, 16, 32 or 64 pixels a side", () => {
 });
 
 check("the canvas is square all the way down", () => {
-  const app = read("js/app.js");
-  const quantise = read("js/quantise.js");
+  const app = readSite("js/app.js");
+  const quantise = readSite("js/quantise.js");
 
   /* One number in, one number out: the size dropdown can only make a square
      canvas. */
@@ -1651,7 +1695,7 @@ check("the canvas is square all the way down", () => {
 });
 
 check("the palette is the whole of the menu", () => {
-  const markup = read("index.html");
+  const markup = readSite("index.html");
   const menu = markup.slice(
     markup.indexOf('id="menu"'),
     markup.indexOf('id="colour-popover"'),

@@ -110,21 +110,19 @@ SCP=(scp -i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes
      -o ConnectTimeout=8 -o LogLevel=ERROR)
 RSYNC_SSH="ssh -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 RSYNC=(rsync -az --delete --chmod=D755,F644
-       -e "$RSYNC_SSH"
-       --exclude='.git' --exclude='node_modules' --exclude='.next'
-       --exclude='dist' --exclude='www' --exclude='__pycache__'
-       --exclude='*.pyc' --exclude='.env'
-       --exclude='/docs/' --exclude='/tests/' --exclude='/scripts/'
-       --exclude='/tools/' --exclude='/ops/' --exclude='*.md'
-       --exclude='/serve.sh' --exclude='/deploy.sh')
+       -e "$RSYNC_SSH")
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
 # 1. Ship the site files.
+#
+#    The webroot is site/ — index.html, 404.html, css/ and js/. Nothing else
+#    is in it, so there is no exclusion list to get wrong: what is in site/
+#    is what the site is, and what is not in it never leaves this machine.
 say "Uploading site files to ${HOST}:${WEBROOT}"
 "${SSH[@]}" "$USER@$HOST" "mkdir -p '$WEBROOT' /var/log/webapps"
 "${RSYNC[@]}" --rsync-path="mkdir -p '$WEBROOT' && rsync" \
-  "$SCRIPT_DIR/" "$USER@$HOST:$WEBROOT/"
+  "$SCRIPT_DIR/site/" "$USER@$HOST:$WEBROOT/"
 
 # 2. Install the nginx vhost and the shared security headers.
 #    The source files live here, so they are copied across first — `install`

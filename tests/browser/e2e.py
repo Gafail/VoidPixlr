@@ -38,6 +38,10 @@ from marionette import MARIONETTE_PORT, Marionette  # noqa: E402
 import probe  # noqa: E402
 
 ROOT = HERE.parent.parent
+# The webroot. Everything the page needs to run lives in here, and the
+# probe and the paste fixture are written into it so the server can serve
+# them alongside the real files.
+SITE = ROOT / "site"
 SHOTS = HERE / "shots"
 IMAGES = Path("/tmp/vp-images")
 
@@ -115,11 +119,11 @@ def main(argv: list[str]) -> int:
     # CSP is `script-src 'self'`, which blocks inline scripts, and a blocked
     # probe never installs — the error checks would read an empty array and
     # pass while measuring nothing.
-    diag = probe.install(ROOT)
+    diag = probe.install(SITE)
 
     # The paste test fetches a real image from the same origin, so the
     # clipboard path is exercised with actual bytes rather than a stub.
-    paste_image = ROOT / ".vp-test-image.png"
+    paste_image = SITE / ".vp-test-image.png"
     shutil.copy(IMAGES / "test-photo.png", paste_image)
 
     firefox = Marionette(port=args.port)
@@ -129,7 +133,7 @@ def main(argv: list[str]) -> int:
         run(firefox, args.base, shots, downloads)
     finally:
         firefox.stop()
-        probe.cleanup(ROOT)
+        probe.cleanup(SITE)
         paste_image.unlink(missing_ok=True)
 
     print("")

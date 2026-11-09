@@ -26,6 +26,8 @@ from marionette import MARIONETTE_PORT, Marionette  # noqa: E402
 import probe  # noqa: E402
 
 ROOT = HERE.parent.parent
+# The webroot — see the note in e2e.py.
+SITE = ROOT / "site"
 IMAGES = Path("/tmp/vp-images")
 
 PASSED = 0
@@ -61,7 +63,7 @@ def main(argv: list[str]) -> int:
     # shared CSP is `script-src 'self'`, which blocks inline scripts, and a
     # blocked probe never installs — the error checks would read an empty
     # array and pass while measuring nothing.
-    probe.install(ROOT)
+    probe.install(SITE)
 
     firefox = Marionette(port=args.port)
     try:
@@ -69,7 +71,7 @@ def main(argv: list[str]) -> int:
         run(firefox, args.base)
     finally:
         firefox.stop()
-        probe.cleanup(ROOT)
+        probe.cleanup(SITE)
 
     print("")
     if FAILURES:

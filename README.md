@@ -5,6 +5,8 @@ save it as a PNG.
 
 **Nothing is uploaded. Nothing is ever sent anywhere.**
 
+![The canvas with a sprite painted on it](docs/shots/02-sprite-painted.png)
+
 > **Working on this project?** [`AGENTS.md`](AGENTS.md) is the handoff
 > document: what the project is, how it is built, how it is deployed, and the
 > gotchas that have bitten before. Read that first.
@@ -30,6 +32,8 @@ save it as a PNG.
   switched off when it gets in the way.
 - **A support button.** The Ko-fi widget sits in the bottom bar and links to
   the project's Ko-fi page.
+
+![The colour pop-over](docs/shots/03-colours.png)
 
 ## Scope
 
@@ -59,20 +63,47 @@ does do is tell Ko-fi and Google that a browser opened this page, which on a
 LAN-only tool means they learn the visitor's local network address. That is
 the trade, and it is written down in the specification rather than hidden.
 
+## The project
+
+```
+voidpixlr/
+├── site/                  ← the webroot. Exactly what is deployed.
+│   ├── index.html
+│   ├── 404.html
+│   ├── css/style.css
+│   └── js/                ← nine modules, loaded in order
+├── ops/                   ← nginx vhost, headers, provisioning checklist
+├── tests/                 ← the node suite and the Firefox suites
+├── tools/                 ← the test-image generator
+├── docs/shots/            ← the screenshots used above
+├── deploy.sh              ← rsync + vhost install + nginx reload + smoke test
+├── serve.sh               ← local preview
+├── README.md              ← this file
+├── AGENTS.md              ← the handoff document
+├── project.md             ← the specification
+└── project-v1.0.md        ← the archived v1.0 specification
+```
+
+`site/` is the whole site. It holds the page, the stylesheet, the scripts and
+the 404 page — twelve files, and nothing else. The deploy copies that
+directory and nothing more, so there is no exclusion list to get wrong and no
+chance of shipping the tests to a public box.
+
 ## Running it
 
 ```bash
 ./serve.sh          # http://127.0.0.1:8790
 ```
 
-No build step. No dependencies. Open `index.html` and it works.
+No build step. No dependencies. It serves `site/` as plain static files,
+exactly as nginx does in production.
 
 ## Deploying it
 
 The site is static: nginx serves a directory of files. There is no runtime, no
-backend and no database. `deploy.sh` ships the files over SSH, installs the
-nginx vhost and the shared security-headers snippet, validates the config with
-`nginx -t`, reloads nginx and smoke-tests the result.
+backend and no database. `deploy.sh` ships `site/` over SSH, installs the
+nginx vhost and the headers file, validates the config with `nginx -t`,
+reloads nginx and smoke-tests the result.
 
 ```bash
 ./deploy.sh <ip>
@@ -99,7 +130,7 @@ are deliberately not stored in this repo, so they are done by hand.
 ## Testing
 
 ```bash
-node tests/voidpixlr.test.mjs        # 102 logic checks
+node tests/voidpixlr.test.mjs        # 103 logic checks
 
 python3 tools/make-test-images.py /tmp/vp-images
 python3 tests/browser/e2e.py          # 66 end-to-end checks in a real Firefox
@@ -124,6 +155,16 @@ python3 tests/browser/hostile.py --base http://127.0.0.1:8791
 
 Both suites pass either way. That is the point — the app has no inline script
 and no inline event handler, so `script-src 'self'` allows it.
+
+### One Firefox at a time
+
+The browser suites drive a real browser, and only one Firefox can hold the
+Marionette port at a time. If another project is running its suites at the
+same moment, give one of them a different port:
+
+```bash
+python3 tests/browser/e2e.py --port 2829
+```
 
 ## Licence
 

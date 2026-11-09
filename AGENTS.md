@@ -3,7 +3,7 @@
 > A pixel-art canvas for 16, 32 and 64 px square art. Pick a palette, draw,
 > save it as a PNG. Nothing is ever uploaded.
 
-**Status:** built, tested and deployed — the r16 build (r15 code, r16 spec)
+**Status:** built, tested and deployed — the r17 build (r15 code, r17 tree)
 **Domain:** none (LAN-only)
 **Brand identity:** "A pixel canvas that earns its keep." Flat rectangles, no
 gradients, no rounded corners, no animations, no shadows except the canvas
@@ -34,34 +34,39 @@ belongs in VoidPixelatr. That is the whole point of the split.
 - **Rendering:** a layered buffer model, not DOM nodes. `artBuffer` and
   `previewBuffer` are offscreen canvases at art resolution; the visible
   canvas composites them. 64×64 is 4096 cells and stays responsive.
-- **Deploy pipeline:** `./deploy.sh` → rsync → install the vhost and the
-  shared nginx snippet → `nginx -t` → reload → smoke test.
+- **Deploy pipeline:** `./deploy.sh` → rsync `site/` → install the vhost and
+  the headers file → `nginx -t` → reload → smoke test.
 
 ## File map
 
-- `index.html` — the markup. No inline script, no inline event handlers
-  (the shared CSP is `script-src 'self'`).
-- `css/style.css` — every style and every token.
-- `js/quantise.js` — the pure algorithm layer: colour maths, nearest-colour
-  matching, the grid serialiser. No DOM.
-- `js/palette.js` — the palette model, the three nested built-ins, editing,
-  reordering, the staging palette, the re-indexing on a palette change, and
-  the hue-family classifier the balance test uses.
-- `js/history.js` — the undo and redo stacks, depth scaled by the canvas's
-  cell count.
-- `js/storage.js` — `localStorage` (three keys). Every write is wrapped; a
-  quota error is swallowed.
-- `js/canvas.js` — the buffers (art, preview), the compositing, the pointer
-  handling: drag-paint with Bresenham interpolation, the eraser, symmetry,
-  zoom.
-- `js/io.js` — PNG and JSON export, JSON and PNG import, the clipboard with
-  its download fallback.
-- `js/menu.js` — the menu: the sections that drop open, and the colour
+**`site/` is the webroot.** It holds the twelve files the site is made of, and
+it is what the deploy copies and what the local preview serves. Everything
+else in this folder is the toolchain around it.
+
+- `site/index.html` — the markup. No inline script, no inline event handlers
+  (the CSP is `script-src 'self'`).
+- `site/404.html` — the house 404 page nginx serves.
+- `site/css/style.css` — every style and every token.
+- `site/js/quantise.js` — the pure algorithm layer: colour maths,
+  nearest-colour matching, the grid serialiser. No DOM.
+- `site/js/palette.js` — the palette model, the three nested built-ins,
+  editing, reordering, the staging palette, the re-indexing on a palette
+  change, and the hue-family classifier the balance test uses.
+- `site/js/history.js` — the undo and redo stacks, depth scaled by the
+  canvas's cell count.
+- `site/js/storage.js` — `localStorage` (three keys). Every write is wrapped;
+  a quota error is swallowed.
+- `site/js/canvas.js` — the buffers (art, preview), the compositing, the
+  pointer handling: drag-paint with Bresenham interpolation, the eraser,
+  symmetry, zoom.
+- `site/js/io.js` — PNG and JSON export, JSON and PNG import, the clipboard
+  with its download fallback.
+- `site/js/menu.js` — the menu: the sections that drop open, and the colour
   pop-over, which floats over the canvas beside the button that opened it.
-- `js/app.js` — the bootstrap: wiring, the keyboard, drag and drop, paste,
-  the inline panels, the autosave.
-- `js/kofi.js` — the Ko-fi widget bootstrap. The only third-party script the
-  page loads.
+- `site/js/app.js` — the bootstrap: wiring, the keyboard, drag and drop,
+  paste, the inline panels, the autosave.
+- `site/js/kofi.js` — the Ko-fi widget bootstrap. The only third-party script
+  the page loads.
 - `ops/nginx/voidpixlr.conf` — the vhost.
 - `ops/nginx/voidpixlr-headers.conf` — this site's own headers: the house
   policy with the CSP widened by the three origins the Ko-fi widget needs.
@@ -72,16 +77,17 @@ belongs in VoidPixelatr. That is the whole point of the split.
 - `tests/browser/hostile.py` — the hostile pass: bad files, lying project
   files, storage that throws.
 - `tools/make-test-images.py` — writes the test images (stdlib only).
+- `docs/shots/` — the screenshots the README uses.
 - `project.md` — the specification. The single source of truth.
 - `project-v1.0.md` — the archived v1.0 specification.
 
-There is **no `js/workspace.js`** and **no `js/reference.js`**. The source
-pane and the photo layer went with the pipeline.
+There is **no `site/js/workspace.js`** and **no `site/js/reference.js`**. The
+source pane and the photo layer went with the pipeline.
 
 ## How to test
 
 ```bash
-node tests/voidpixlr.test.mjs          # 102 logic checks, no dependencies
+node tests/voidpixlr.test.mjs          # 103 logic checks, no dependencies
 
 ./serve.sh                              # then, in another shell:
 python3 tools/make-test-images.py /tmp/vp-images
@@ -93,7 +99,10 @@ The browser tests drive a real Firefox over Marionette. Firefox must be on
 the path; nothing else is needed.
 
 **One Firefox at a time.** Two suites running at once collide on the
-profile and die with `MarionetteError: the connection closed`.
+profile and die with `MarionetteError: the connection closed`. Firefox also
+ignores `MOZ_MARIONETTE_PORT` and falls back to 2828, so if another project
+is running its suites at the same moment, give one of them a different
+port: `python3 tests/browser/e2e.py --port 2829`.
 
 To run them under the **real shared CSP** — which is the only way to show
 the app works under `script-src 'self'` — use the CSP server instead of
@@ -105,8 +114,8 @@ python3 tests/browser/e2e.py --base http://127.0.0.1:8791
 python3 tests/browser/hostile.py --base http://127.0.0.1:8791
 ```
 
-It parses the umbrella's real `security-headers.conf`, so it cannot drift
-from what nginx will send.
+It parses this site's own `ops/nginx/voidpixlr-headers.conf`, so it cannot
+drift from what nginx will send.
 
 ## How to deploy
 
@@ -150,6 +159,11 @@ separately.
 
 ## Known gotchas
 
+- **`site/` is the webroot, and only `site/` is deployed.** The deploy
+  rsyncs that one directory, so there is no exclusion list to get wrong. A
+  file that the page needs belongs in `site/`; a file that the toolchain
+  needs does not. A node check walks the webroot and fails if it holds a
+  file nothing references.
 - **`ImageData` is not a `drawImage` source in Firefox.** Paint it into a
   canvas with `putImageData` and draw the canvas. This bit three functions
   at once.
@@ -229,7 +243,7 @@ separately.
   The steps of a hue are therefore spread across the tiers rather than
   sitting next to each other, and the swatch grid reads as a value table.
 - **The spec's palette tables are checked against the code.** A node test
-  reads `project.md` and `js/palette.js` and compares them. Change one and
+  reads `project.md` and `site/js/palette.js` and compares them. Change one and
   you must change the other.
 - **The spec is checked for drift too.** A node test reads `project.md` and
   fails if it describes a feature the build does not have. A previous
@@ -282,7 +296,7 @@ separately.
   and this project has already drifted once because of it.
 - **The container at `.100` belongs to this project alone.** VoidPixelatr
   has no container, no registry row and no remote.
-- Current deployed version: **v2.1 r16**, at http://192.168.100.100/.
+- Current deployed version: **v2.1 r17**, at http://192.168.100.100/.
 - Container: **`.100`**, hostname `VoidPixlr`, a full clone of the base
   template. Its SSH host keys were regenerated on 2026-11-08 — the clone had
   inherited the template's identity, which `.198` still uses.
